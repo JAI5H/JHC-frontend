@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Menu, X } from "lucide-react";
+import { Link } from "react-router";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import jhcLogo from "figma:asset/jhc-logo.png";
 
@@ -51,8 +52,8 @@ export function Navbar() {
         </nav>
 
         <div className="hidden lg:flex items-center gap-3">
-          <a
-            href="#contact"
+          <Link
+            to="/talent-network"
             className="text-sm font-medium px-4 py-2 rounded-xl border transition-all duration-150"
             style={{ borderColor: "#E2E8F0", color: "#64748B" }}
             onMouseEnter={(e) => {
@@ -65,7 +66,7 @@ export function Navbar() {
             }}
           >
             Join Talent Network
-          </a>
+          </Link>
           <a
             href="#contact"
             className="text-sm font-semibold px-5 py-2.5 rounded-xl text-white transition-all duration-200"
@@ -95,7 +96,7 @@ export function Navbar() {
             </a>
           ))}
           <div className="flex flex-col gap-2 pt-3 border-t" style={{ borderColor: "#E2E8F0" }}>
-            <a href="#contact" className="text-sm font-medium px-4 py-2.5 rounded-xl border text-center" style={{ borderColor: "#0B1F4D", color: "#0B1F4D" }} onClick={() => setMobileOpen(false)}>Join Talent Network</a>
+            <Link to="/talent-network" className="text-sm font-medium px-4 py-2.5 rounded-xl border text-center" style={{ borderColor: "#0B1F4D", color: "#0B1F4D" }} onClick={() => setMobileOpen(false)}>Join Talent Network</Link>
             <a href="#contact" className="text-sm font-semibold px-4 py-2.5 rounded-xl text-white text-center" style={{ background: "#0B1F4D" }} onClick={() => setMobileOpen(false)}>Start Your Partnership</a>
           </div>
         </div>
