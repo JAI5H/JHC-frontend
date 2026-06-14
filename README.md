@@ -1,7 +1,7 @@
 
-  # Design Premium Landing Page
+  # JHC-dev
 
-  This is a code bundle for Design Premium Landing Page. The original project is available at https://www.figma.com/design/joKyPRXuJEvDqNshcWCM8L/Design-Premium-Landing-Page.
+  This is a code bundle for JHC-dev. The original project is available at https://www.figma.com/design/joKyPRXuJEvDqNshcWCM8L/JHC-dev.
 
   ## Running the code
 
