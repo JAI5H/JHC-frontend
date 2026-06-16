@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Search, Plus, FileText, X, FileDown } from "lucide-react";
+// Future feature: Partner Companies dashboard temporarily disabled.
 
 function exportCSV(rows: typeof PARTNERS, filename: string) {
   const headers = ["Company", "Service", "Talents", "Country", "Status", "Since"];

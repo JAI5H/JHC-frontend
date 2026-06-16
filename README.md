@@ -1,7 +1,7 @@
 
   # JHC-dev
 
-  This is a code bundle for JHC-dev. The original project is available at https://www.figma.com/design/joKyPRXuJEvDqNshcWCM8L/JHC-dev.
+  Frontend application for the JHC platform.
 
   ## Running the code
 

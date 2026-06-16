@@ -1,5 +1,6 @@
 // chart imports kept for future use
 // import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BadgeCheck, Building2, FileText, Handshake, UserPlus } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
 
 const TOP_METRICS = [
@@ -32,11 +33,11 @@ const PIE_DATA = [
 ];
 
 const ACTIVITY = [
-  { id: 1, icon: "👤", text: "Ahmed Al-Rashid joined the Talent Network",       time: "2 min ago",  type: "join" },
-  { id: 2, icon: "🏢", text: "Aramco requested a new Operations Squad",          time: "18 min ago", type: "request" },
-  { id: 3, icon: "✅", text: "Sarah Smith was shortlisted for Operations Manager", time: "1 hr ago",  type: "status" },
-  { id: 4, icon: "🤝", text: "NEOM signed a Remote Workforce contract",          time: "3 hr ago",   type: "contract" },
-  { id: 5, icon: "📋", text: "Mohamed Ali submitted his updated CV",             time: "5 hr ago",   type: "upload" },
+  { id: 1, icon: <UserPlus size={15} />, text: "Ahmed Al-Rashid joined the Talent Network",       time: "2 min ago",  type: "join" },
+  { id: 2, icon: <Building2 size={15} />, text: "Aramco requested a new Operations Squad",          time: "18 min ago", type: "request" },
+  { id: 3, icon: <BadgeCheck size={15} />, text: "Sarah Smith was shortlisted for Operations Manager", time: "1 hr ago",  type: "status" },
+  { id: 4, icon: <Handshake size={15} />, text: "NEOM signed a Remote Workforce contract",          time: "3 hr ago",   type: "contract" },
+  { id: 5, icon: <FileText size={15} />, text: "Mohamed Ali submitted his updated CV",             time: "5 hr ago",   type: "upload" },
 ];
 
 const TYPE_COLORS: Record<string, string> = {
@@ -147,7 +148,7 @@ export default function AdminOverviewPage() {
             >
               <div
                 className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-sm"
-                style={{ background: TYPE_COLORS[a.type] }}
+                style={{ background: TYPE_COLORS[a.type], color: TYPE_TEXT[a.type] }}
               >
                 {a.icon}
               </div>
