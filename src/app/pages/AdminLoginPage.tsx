@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Eye, EyeOff, ShieldCheck, UserCog } from "lucide-react";
 import { Link, Navigate, useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/shared/ImageWithFallback";
@@ -31,6 +31,19 @@ export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const previousLang = document.documentElement.lang;
+    const previousDir = document.documentElement.dir;
+
+    document.documentElement.lang = "en";
+    document.documentElement.dir = "ltr";
+
+    return () => {
+      document.documentElement.lang = previousLang;
+      document.documentElement.dir = previousDir;
+    };
+  }, []);
 
   if (existingSession) {
     return <Navigate replace to="/admin/overview" />;
@@ -100,7 +113,7 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div style={{ fontFamily: "'Sora', system-ui, sans-serif", background: "#F8F9FA", minHeight: "100vh" }}>
+    <div dir="ltr" lang="en" style={{ fontFamily: "'Sora', system-ui, sans-serif", background: "#F8F9FA", minHeight: "100vh" }}>
       <main className="mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto grid w-full max-w-5xl items-stretch gap-6 lg:grid-cols-[1.05fr_0.95fr]">
           <section
@@ -155,11 +168,10 @@ export default function AdminLoginPage() {
                       key={option.key}
                       type="button"
                       onClick={() => setMode(option.key)}
-                      className="rounded-[14px] px-3 py-3 text-sm font-semibold transition-all"
+                      className="rounded-[14px] px-3 py-3 text-sm font-semibold transition-[transform,background-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                       style={{
                         background: active ? "#ffffff" : "transparent",
                         color: active ? "#0B1F4D" : "#64748B",
-                        boxShadow: active ? "0 8px 20px rgba(15,23,42,0.06)" : "none",
                       }}
                     >
                       {option.label}
@@ -232,7 +244,7 @@ export default function AdminLoginPage() {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold text-white transition-colors"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold text-white transition-[transform,background-color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                 style={{ background: isSubmitting ? "#94A3B8" : "#0B1F4D", cursor: isSubmitting ? "not-allowed" : "pointer" }}
                 onMouseEnter={(e) => { if (!isSubmitting) (e.currentTarget as HTMLElement).style.background = "#1D4ED8"; }}
                 onMouseLeave={(e) => { if (!isSubmitting) (e.currentTarget as HTMLElement).style.background = "#0B1F4D"; }}

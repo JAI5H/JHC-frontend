@@ -314,7 +314,7 @@ function Step1Form({ data, onChange, onNext }: { data: Step1; onChange: (e: Reac
         <button
           onClick={onNext}
           disabled={!valid}
-          className="inline-flex items-center gap-2 px-7 py-3 rounded-[16px] text-sm font-semibold text-white transition-all duration-150"
+        className="inline-flex items-center gap-2 px-7 py-3 rounded-[16px] text-sm font-semibold text-white transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
           style={{ background: valid ? "#1D4ED8" : "#CBD5E1", cursor: valid ? "pointer" : "not-allowed", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "15px" : undefined }}
           onMouseEnter={(e) => { if (valid) (e.currentTarget as HTMLElement).style.background = "#0B1F4D"; }}
           onMouseLeave={(e) => { if (valid) (e.currentTarget as HTMLElement).style.background = "#1D4ED8"; }}
@@ -392,7 +392,7 @@ function Step2Form({ data, onChange, onNext, onPrev }: { data: Step2; onChange: 
       </Field>
 
       <div className="flex items-center justify-between pt-2">
-        <button onClick={onPrev} className="inline-flex items-center gap-2 px-6 py-3 rounded-[16px] text-sm font-medium border transition-colors"
+        <button onClick={onPrev} className="inline-flex items-center gap-2 px-6 py-3 rounded-[16px] text-sm font-medium border transition-[transform,border-color,color,background-color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
           style={{ borderColor: "#E2E8F0", color: "#64748B", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "15px" : undefined }}
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#0B1F4D"; (e.currentTarget as HTMLElement).style.color = "#0B1F4D"; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#E2E8F0"; (e.currentTarget as HTMLElement).style.color = "#64748B"; }}>
@@ -408,7 +408,7 @@ function Step2Form({ data, onChange, onNext, onPrev }: { data: Step2; onChange: 
           )}
         </button>
         <button onClick={onNext} disabled={!valid}
-          className="inline-flex items-center gap-2 px-7 py-3 rounded-[16px] text-sm font-semibold text-white transition-all duration-150"
+          className="inline-flex items-center gap-2 px-7 py-3 rounded-[16px] text-sm font-semibold text-white transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
           style={{ background: valid ? "#1D4ED8" : "#CBD5E1", cursor: valid ? "pointer" : "not-allowed", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "15px" : undefined }}
           onMouseEnter={(e) => { if (valid) (e.currentTarget as HTMLElement).style.background = "#0B1F4D"; }}
           onMouseLeave={(e) => { if (valid) (e.currentTarget as HTMLElement).style.background = "#1D4ED8"; }}>
@@ -525,7 +525,7 @@ function Step3Form({ data, onChange, onFileChange, onPrev, onSubmit, submitting,
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); onFileChange(null); }}
-                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-[transform,border-color,color,background-color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                 style={{ color: "#64748B", border: "1px solid #E2E8F0", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "13px" : undefined }}
               >
                 <X size={12} /> {talentNetwork.step3.removeFile}
@@ -573,7 +573,7 @@ function Step3Form({ data, onChange, onFileChange, onPrev, onSubmit, submitting,
 
       <div className="flex flex-wrap items-stretch gap-2.5 pt-1 sm:flex-nowrap sm:justify-between sm:gap-3 sm:pt-2">
         <button onClick={onPrev}
-          className="inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-[16px] border px-4 text-center text-sm font-medium whitespace-nowrap transition-colors sm:flex-none sm:px-6"
+          className="inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-[16px] border px-4 text-center text-sm font-medium whitespace-nowrap transition-[transform,border-color,color,background-color] duration-200 ease-out hover:-translate-y-px active:translate-y-0 sm:flex-none sm:px-6"
           style={{ borderColor: "#E2E8F0", color: "#64748B", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "15px" : undefined }}
           onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#0B1F4D"; (e.currentTarget as HTMLElement).style.color = "#0B1F4D"; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#E2E8F0"; (e.currentTarget as HTMLElement).style.color = "#64748B"; }}>
@@ -589,7 +589,7 @@ function Step3Form({ data, onChange, onFileChange, onPrev, onSubmit, submitting,
           )}
         </button>
         <button onClick={onSubmit} disabled={!canSubmit}
-          className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-[16px] px-4 py-3 text-center text-sm font-semibold text-white whitespace-normal break-words transition-all duration-150 sm:flex-none sm:px-8"
+          className="inline-flex min-h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-[16px] px-4 py-3 text-center text-sm font-semibold text-white whitespace-normal break-words transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0 sm:flex-none sm:px-8"
           style={{
             background: canSubmit ? "#0B1F4D" : "#CBD5E1",
             cursor: canSubmit ? "pointer" : "not-allowed",
@@ -636,7 +636,7 @@ function SuccessScreen() {
       <div className="flex flex-col gap-2 w-full max-w-xs pt-2">
         <Link
           to="/"
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-[16px] text-sm font-semibold text-white transition-colors"
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-[16px] text-sm font-semibold text-white transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
           style={{ background: "#0B1F4D", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "15px" : undefined }}
         >
           {talentNetwork.success.backButton}

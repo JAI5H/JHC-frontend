@@ -73,14 +73,14 @@ export const landing = {
     {
       city: "New Cairo",
       country: "Egypt",
-      phone: "+20 100 000 0000",
-      email: "cairo@jhc-group.com",
+      phone: "+201080004343",
+      email: "info@jisrhc.com",
     },
     {
       city: "Riyadh",
       country: "Saudi Arabia",
-      phone: "+966 11 234 5678",
-      email: "riyadh@jhc-group.com",
+      phone: "+966592368363",
+      email: "info@jisrhc.com",
     },
   ],
   footerCompanyLinks: [
@@ -95,9 +95,9 @@ export const landing = {
     { label: "Strategic Consulting", href: "#services" },
   ],
   footerContactChannels: [
-    ["General Enquiries", "info@jhc-group.com"],
-    ["Talent Network", "talent@jhc-group.com"],
-    ["Business Partnerships", "partners@jhc-group.com"],
+    ["General Enquiries", "info@jisrhc.com"],
+    ["Talent Network", "info@jisrhc.com"],
+    ["Business Partnerships", "info@jisrhc.com"],
   ],
   footerPolicyLinks: ["Terms of Use", "Privacy Policy", "Cookie Policy"],
   footerSectionTitles: {

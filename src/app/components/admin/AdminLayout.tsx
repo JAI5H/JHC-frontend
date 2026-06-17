@@ -2,9 +2,16 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { LayoutDashboard, Users, Settings, LogOut, Menu, X } from "lucide-react";
 import { ImageWithFallback } from "../shared/ImageWithFallback";
-import { clearAdminSession, getAdminSession, isSuperAdmin } from "./adminSession";
+import {
+  clearAdminSession,
+  clearAdminSessionAndRedirect,
+  getAdminSession,
+  isSuperAdmin,
+  updateAdminSession,
+} from "./adminSession";
 import jhcLogo from "../../../imgs/logo.png";
 import { logoutAdmin } from "../../../services/api/authApi";
+import { getSystemSettings } from "../../../services/api/settingsApi";
 
 const NAV = [
   { icon: <LayoutDashboard size={17} />, label: "Overview",          path: "/admin/overview" },
@@ -21,6 +28,9 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [mobileAccountMenuOpen, setMobileAccountMenuOpen] = useState(false);
+  const [resolvedSessionTimeoutMinutes, setResolvedSessionTimeoutMinutes] = useState<number | null>(
+    session?.sessionTimeoutMinutes ?? null,
+  );
 
   const visibleNav = NAV.filter((item) => superAdmin || item.path !== "/admin/administrators");
 
@@ -52,6 +62,87 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
     window.addEventListener("click", handleWindowClick);
     return () => window.removeEventListener("click", handleWindowClick);
   }, []);
+
+  useEffect(() => {
+    const previousLang = document.documentElement.lang;
+    const previousDir = document.documentElement.dir;
+
+    document.documentElement.lang = "en";
+    document.documentElement.dir = "ltr";
+
+    return () => {
+      document.documentElement.lang = previousLang;
+      document.documentElement.dir = previousDir;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!session || resolvedSessionTimeoutMinutes !== null) {
+      return () => {
+        active = false;
+      };
+    }
+
+    const loadSessionTimeout = async () => {
+      try {
+        const settings = await getSystemSettings();
+        if (!active) return;
+
+        setResolvedSessionTimeoutMinutes(settings.sessionTimeoutMinutes);
+        updateAdminSession({ sessionTimeoutMinutes: settings.sessionTimeoutMinutes });
+      } catch {
+        if (!active) return;
+
+        setResolvedSessionTimeoutMinutes(30);
+        updateAdminSession({ sessionTimeoutMinutes: 30 });
+      }
+    };
+
+    void loadSessionTimeout();
+
+    return () => {
+      active = false;
+    };
+  }, [resolvedSessionTimeoutMinutes, session]);
+
+  useEffect(() => {
+    if (!session || !resolvedSessionTimeoutMinutes) return;
+
+    const timeoutMs = resolvedSessionTimeoutMinutes * 60 * 1000;
+    let idleTimer: number | undefined;
+
+    const handleSessionTimeout = () => {
+      clearAdminSessionAndRedirect();
+    };
+
+    const resetIdleTimer = () => {
+      if (idleTimer) {
+        window.clearTimeout(idleTimer);
+      }
+
+      idleTimer = window.setTimeout(handleSessionTimeout, timeoutMs);
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = ["mousemove", "keydown", "click", "scroll"];
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, resetIdleTimer, { passive: true });
+    });
+
+    resetIdleTimer();
+
+    return () => {
+      if (idleTimer) {
+        window.clearTimeout(idleTimer);
+      }
+
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, resetIdleTimer);
+      });
+    };
+  }, [resolvedSessionTimeoutMinutes, session]);
 
   const handleLogout = async () => {
     try {
@@ -164,7 +255,7 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
   );
 
   return (
-    <div style={{ fontFamily: "'Sora', system-ui, sans-serif", background: "#F8F9FA", minHeight: "100vh", display: "flex" }}>
+    <div dir="ltr" lang="en" style={{ fontFamily: "'Sora', system-ui, sans-serif", background: "#F8F9FA", minHeight: "100vh", display: "flex" }}>
 
       {/* ── Fixed Left Sidebar ── */}
       <aside

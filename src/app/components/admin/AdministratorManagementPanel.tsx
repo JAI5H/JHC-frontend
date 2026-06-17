@@ -16,9 +16,13 @@ import {
 import { getAdminSession, hasAdminAccessToken } from "./adminSession";
 import {
   deleteAdministrator,
+  editAdministrator,
   getAdministrators,
+  resetAdministratorPassword,
+  setAdministratorStatus,
   type AdminDirectoryRecord,
 } from "../../../services/api/settingsApi";
+import { getAxiosErrorMessage } from "../../../services/api/utils";
 
 type DirectoryFilter = "All" | "Name" | "Email";
 
@@ -59,6 +63,44 @@ function formatDate(value: string | null) {
   return parsed.toLocaleDateString("en-CA");
 }
 
+function ActionModal({
+  title,
+  description,
+  children,
+  onClose,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} />
+      <div
+        className="relative z-10 w-full max-w-[520px] rounded-2xl bg-white p-6"
+        style={{ border: "1px solid #E2E8F0", boxShadow: "0 24px 48px rgba(15,23,42,0.18)" }}
+      >
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h4 className="text-base font-bold" style={{ color: "#0B1F4D" }}>{title}</h4>
+            <p className="mt-1 text-sm" style={{ color: "#64748B" }}>{description}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border"
+            style={{ borderColor: "#E2E8F0", color: "#64748B", background: "#ffffff" }}
+          >
+            <X size={15} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function AdministratorManagementPanel() {
   const session = getAdminSession();
   const [admins, setAdmins] = useState<AdminDirectoryRecord[]>([]);
@@ -69,6 +111,13 @@ export function AdministratorManagementPanel() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
+  const [editTarget, setEditTarget] = useState<AdminDirectoryRecord | null>(null);
+  const [editForm, setEditForm] = useState({ fullName: "", email: "" });
+  const [editLoading, setEditLoading] = useState(false);
+  const [resetTarget, setResetTarget] = useState<AdminDirectoryRecord | null>(null);
+  const [resetForm, setResetForm] = useState({ newPassword: "", confirmPassword: "" });
+  const [resetLoading, setResetLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -113,10 +162,120 @@ export function AdministratorManagementPanel() {
     setFeedback(message);
   };
 
-  const handleUnsupportedAction = () => {
+  const handleOpenEdit = (admin: AdminDirectoryRecord) => {
     setOpenActionMenuId(null);
+    setEditTarget(admin);
+    setEditForm({ fullName: admin.fullName, email: admin.email });
     setFeedback("");
-    setError("No backend endpoint exists for this administrator action yet.");
+    setError("");
+  };
+
+  const handleOpenReset = (admin: AdminDirectoryRecord) => {
+    setOpenActionMenuId(null);
+    setResetTarget(admin);
+    setResetForm({ newPassword: "", confirmPassword: "" });
+    setFeedback("");
+    setError("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editTarget || editLoading) return;
+
+    setFeedback("");
+    setError("");
+
+    if (!editForm.fullName.trim()) {
+      setError("Administrator full name is required.");
+      return;
+    }
+
+    if (!editForm.email.trim() || !editForm.email.includes("@")) {
+      setError("Enter a valid administrator email.");
+      return;
+    }
+
+    setEditLoading(true);
+
+    try {
+      await editAdministrator(editTarget.id, {
+        fullName: editForm.fullName.trim(),
+        email: editForm.email.trim(),
+      });
+
+      setAdmins((current) =>
+        current.map((item) =>
+          item.id === editTarget.id
+            ? { ...item, fullName: editForm.fullName.trim(), email: editForm.email.trim() }
+            : item,
+        ),
+      );
+      setEditTarget(null);
+      setMessage("Administrator details updated successfully.");
+    } catch (requestError) {
+      setFeedback("");
+      setError(getAxiosErrorMessage(requestError, "Unable to update this administrator right now."));
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleToggleStatus = async (admin: AdminDirectoryRecord) => {
+    if (statusUpdatingId) return;
+
+    setFeedback("");
+    setError("");
+    setStatusUpdatingId(admin.id);
+
+    try {
+      await setAdministratorStatus(admin.id);
+      const nextActive = !admin.isActive;
+      setAdmins((current) =>
+        current.map((item) =>
+          item.id === admin.id
+            ? { ...item, isActive: nextActive }
+            : item,
+        ),
+      );
+      setOpenActionMenuId(null);
+      setMessage(`${admin.fullName} has been ${nextActive ? "reactivated" : "suspended"}.`);
+    } catch (requestError) {
+      setFeedback("");
+      setError(getAxiosErrorMessage(requestError, "Unable to update this administrator status right now."));
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetTarget || resetLoading) return;
+
+    setFeedback("");
+    setError("");
+
+    if (resetForm.newPassword.length < 8) {
+      setError("Temporary password must be at least 8 characters.");
+      return;
+    }
+
+    if (resetForm.newPassword !== resetForm.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setResetLoading(true);
+
+    try {
+      await resetAdministratorPassword(resetTarget.id, {
+        newPassword: resetForm.newPassword,
+      });
+      setResetTarget(null);
+      setMessage("Temporary password reset completed successfully.");
+    } catch (requestError) {
+      setFeedback("");
+      setError(getAxiosErrorMessage(requestError, "Unable to reset this administrator password right now."));
+    } finally {
+      setResetLoading(false);
+    }
   };
 
   const handleDeleteAdmin = async (admin: AdminDirectoryRecord) => {
@@ -330,9 +489,9 @@ export function AdministratorManagementPanel() {
                             style={{ borderColor: "#E2E8F0", boxShadow: "0 12px 32px rgba(15,23,42,0.12)" }}
                           >
                             {[
-                              { label: "Edit Administrator", icon: <PencilLine size={14} />, action: handleUnsupportedAction },
-                              { label: "Reset Password", icon: <KeyRound size={14} />, action: handleUnsupportedAction },
-                              { label: admin.isActive ? "Suspend" : "Reactivate", icon: <UserX size={14} />, action: handleUnsupportedAction },
+                              { label: "Edit Administrator", icon: <PencilLine size={14} />, action: () => handleOpenEdit(admin) },
+                              { label: "Reset Password", icon: <KeyRound size={14} />, action: () => handleOpenReset(admin) },
+                              { label: statusUpdatingId === admin.id ? "Updating..." : admin.isActive ? "Suspend" : "Reactivate", icon: <UserX size={14} />, action: () => void handleToggleStatus(admin) },
                               { label: deletingId === admin.id ? "Deleting..." : "Delete Administrator", icon: <Trash2 size={14} />, action: () => void handleDeleteAdmin(admin) },
                             ].map((item) => (
                               <button
@@ -358,6 +517,75 @@ export function AdministratorManagementPanel() {
           </table>
         </div>
       </div>
+
+      {editTarget ? (
+        <ActionModal
+          title="Edit Administrator"
+          description="Update the administrator identity details stored in the live directory."
+          onClose={() => setEditTarget(null)}
+        >
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748B", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.07em" }}>Full Name</label>
+              <input
+                value={editForm.fullName}
+                onChange={(event) => setEditForm((current) => ({ ...current, fullName: event.target.value }))}
+                style={inputSt}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748B", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.07em" }}>Official Email</label>
+              <input
+                type="email"
+                value={editForm.email}
+                onChange={(event) => setEditForm((current) => ({ ...current, email: event.target.value }))}
+                style={inputSt}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748B", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.07em" }}>Assigned Region</label>
+              <input value={editTarget.region} disabled style={{ ...inputSt, background: "#F1F5F9", color: "#94A3B8", cursor: "not-allowed" }} />
+            </div>
+          </div>
+          <div className="mt-6 flex justify-end gap-3">
+            <button type="button" onClick={() => setEditTarget(null)} className="rounded-xl border px-4 py-2 text-sm font-semibold" style={{ borderColor: "#E2E8F0", color: "#64748B" }}>Cancel</button>
+            <button type="button" onClick={() => void handleSaveEdit()} disabled={editLoading} className="rounded-xl px-5 py-2 text-sm font-semibold text-white" style={{ background: editLoading ? "#94A3B8" : "#1D4ED8", cursor: editLoading ? "not-allowed" : "pointer" }}>{editLoading ? "Saving..." : "Save Changes"}</button>
+          </div>
+        </ActionModal>
+      ) : null}
+
+      {resetTarget ? (
+        <ActionModal
+          title="Reset Password"
+          description="The administrator will be required to create a new password on the next login."
+          onClose={() => setResetTarget(null)}
+        >
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748B", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.07em" }}>New Temporary Password</label>
+              <input
+                type="password"
+                value={resetForm.newPassword}
+                onChange={(event) => setResetForm((current) => ({ ...current, newPassword: event.target.value }))}
+                style={inputSt}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#64748B", display: "block", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.07em" }}>Confirm Password</label>
+              <input
+                type="password"
+                value={resetForm.confirmPassword}
+                onChange={(event) => setResetForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                style={inputSt}
+              />
+            </div>
+          </div>
+          <div className="mt-6 flex justify-end gap-3">
+            <button type="button" onClick={() => setResetTarget(null)} className="rounded-xl border px-4 py-2 text-sm font-semibold" style={{ borderColor: "#E2E8F0", color: "#64748B" }}>Cancel</button>
+            <button type="button" onClick={() => void handleResetPassword()} disabled={resetLoading} className="rounded-xl px-5 py-2 text-sm font-semibold text-white" style={{ background: resetLoading ? "#94A3B8" : "#1D4ED8", cursor: resetLoading ? "not-allowed" : "pointer" }}>{resetLoading ? "Saving..." : "Reset Password"}</button>
+          </div>
+        </ActionModal>
+      ) : null}
     </div>
   );
 }

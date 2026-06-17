@@ -1,5 +1,5 @@
 import axios from "axios";
-import { clearAdminSession, getAdminAccessToken } from "../../app/components/admin/adminSession";
+import { clearAdminSessionAndRedirect, getAdminAccessToken } from "../../app/components/admin/adminSession";
 
 export const apiClient = axios.create({
   baseURL: "https://api---jhcdev-vr3nmq5gzq-uc.a.run.app",
@@ -25,15 +25,9 @@ apiClient.interceptors.response.use(
     const isAuthRequest = requestUrl?.includes("/api/auth/login") || requestUrl?.includes("/api/auth/logout");
 
     if (status === 401 && !isAuthRequest) {
-      clearAdminSession();
-
-      if (
-        typeof window !== "undefined" &&
-        window.location.pathname !== "/admin/login" &&
-        !isRedirectingForUnauthorized
-      ) {
+      if (!isRedirectingForUnauthorized) {
         isRedirectingForUnauthorized = true;
-        window.location.assign("/admin/login");
+        clearAdminSessionAndRedirect();
       }
     }
 

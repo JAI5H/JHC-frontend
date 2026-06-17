@@ -36,6 +36,8 @@ import CountUp from "../../app/components/CountUp";
 import { useTranslation } from "../../app/hooks/useTranslation";
 import { useLanguage } from "../../app/providers/LanguageProvider";
 import { translations } from "../../locales";
+import { submitContactForm } from "../../services/api/contactApi";
+import { getAxiosErrorMessage } from "../../services/api/utils";
 
 type Metric = {
   value: string;
@@ -101,6 +103,8 @@ type OfficeLocation = {
   email: string;
 };
 
+type ContactFormFieldKey = "fullName" | "company" | "phone" | "email";
+
 const LANDING_ICON_MAP: Record<string, LucideIcon> = {
   ArrowRight,
   BadgeCheck,
@@ -144,14 +148,14 @@ const OFFICE_LOCATIONS: OfficeLocation[] = [
   {
     city: "New Cairo",
     country: "Egypt",
-    phone: "+20 100 000 0000",
-    email: "cairo@jhc-group.com",
+    phone: "+201080004343",
+    email: "info@jisrhc.com",
   },
   {
     city: "Riyadh",
     country: "Saudi Arabia",
-    phone: "+966 11 234 5678",
-    email: "riyadh@jhc-group.com",
+    phone: "+966592368363",
+    email: "info@jisrhc.com",
   },
 ];
 
@@ -169,9 +173,9 @@ const FOOTER_SERVICE_LINKS = [
 ];
 
 const FOOTER_CONTACT_CHANNELS = [
-  ["General Enquiries", "info@jhc-group.com"],
-  ["Talent Network", "talent@jhc-group.com"],
-  ["Business Partnerships", "partners@jhc-group.com"],
+  ["General Enquiries", "info@jisrhc.com"],
+  ["Talent Network", "info@jisrhc.com"],
+  ["Business Partnerships", "info@jisrhc.com"],
 ] as const;
 
 const FOOTER_POLICY_LINKS = ["Terms of Use", "Privacy Policy", "Cookie Policy"] as const;
@@ -482,6 +486,7 @@ function languageSwitcher({
   const baseTextColor = onLight ? "#64748b" : "rgba(255,255,255,0.72)";
   const activeBackground = onLight ? "#EFF6FF" : "rgba(255,255,255,0.08)";
   const activeBorder = onLight ? "rgba(96,165,250,0.38)" : "rgba(255,255,255,0.14)";
+  const arabicScriptPattern = /[\u0600-\u06FF]/;
   const languageOptions = isArabic
     ? [
         { code: "ar", label: "العربية" },
@@ -499,11 +504,11 @@ function languageSwitcher({
         borderColor: onLight ? "rgba(11,31,77,0.10)" : "rgba(255,255,255,0.14)",
         background: onLight ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.04)",
         direction: isArabic ? "rtl" : "ltr",
-        fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : undefined,
       }}
     >
       {languageOptions.map((option) => {
         const active = language === option.code;
+        const optionUsesArabicFont = arabicScriptPattern.test(option.label);
         return (
           <button
             key={option.code}
@@ -513,6 +518,7 @@ function languageSwitcher({
               color: active ? (onLight ? "#0B1F4D" : "#ffffff") : baseTextColor,
               background: active ? activeBackground : "transparent",
               border: active ? `1px solid ${activeBorder}` : "1px solid transparent",
+              fontFamily: optionUsesArabicFont ? "'Cairo', system-ui, sans-serif" : undefined,
             }}
             type="button"
           >
@@ -537,11 +543,10 @@ function statChip(title: string, subtitle: string, icon: LucideIcon, className: 
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-[18px] border border-[#3b82f6]/40 bg-[linear-gradient(180deg,rgba(20,33,68,0.96),rgba(13,24,54,0.92))] px-[14px] py-[15px] shadow-[0_22px_55px_rgba(3,14,38,0.42)] backdrop-blur-[18px] ${className}`}
+      className={`relative w-full overflow-hidden rounded-[18px] border border-[#3b82f6]/40 bg-[linear-gradient(180deg,rgba(20,33,68,0.96),rgba(13,24,54,0.92))] px-[14px] py-[15px] backdrop-blur-[18px] ${className}`}
     >
-      <div className="absolute inset-y-0 left-[34%] w-[44px] bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.16),transparent)] opacity-40 blur-[8px]" />
       <div className="flex items-center gap-3">
-        <div className="flex size-[40px] items-center justify-center rounded-[14px] bg-[linear-gradient(180deg,#3b82f6,#2563eb)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
+        <div className="flex size-[40px] items-center justify-center rounded-[14px] bg-[linear-gradient(180deg,#3b82f6,#2563eb)] text-white">
           <Icon size={iconSize} strokeWidth={iconStrokeWidth} />
         </div>
         <div>
@@ -626,14 +631,93 @@ export default function JhcLandingPage() {
   const orbitCardRefs = useRef<Array<HTMLDivElement | null>>([]);
   const testimonialsCarouselRef = useRef<HTMLDivElement | null>(null);
   const testimonialCardRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [contactForm, setContactForm] = useState<Record<ContactFormFieldKey, string>>({
+    fullName: "",
+    company: "",
+    phone: "",
+    email: "",
+  });
   const [selectedService, setSelectedService] = useState("");
   const [customService, setCustomService] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactSubmitState, setContactSubmitState] = useState<"idle" | "success" | "error">("idle");
+  const [contactSubmitMessage, setContactSubmitMessage] = useState("");
+  const [contactSubmitting, setContactSubmitting] = useState(false);
   const [navOnLight, setNavOnLight] = useState(false);
   const [activeSection, setActiveSection] = useState<NavSection["href"] | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFooterSection, setOpenFooterSection] = useState<FooterAccordionSection | null>(null);
   const [activeTestimonialIndex, setActiveTestimonialIndex] = useState(0);
+
+  const contactFieldKeys: ContactFormFieldKey[] = ["fullName", "company", "phone", "email"];
+
+  const updateContactField = (key: ContactFormFieldKey, value: string) => {
+    setContactForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const handleContactSubmit = async () => {
+    if (contactSubmitting) return;
+
+    const serviceValue =
+      selectedService === CONTACT_SECTION_COPY.otherServiceOption
+        ? customService.trim()
+        : selectedService.trim();
+
+    if (
+      !contactForm.fullName.trim() ||
+      !contactForm.company.trim() ||
+      !contactForm.phone.trim() ||
+      !contactForm.email.trim() ||
+      !contactMessage.trim()
+    ) {
+      setContactSubmitState("error");
+      setContactSubmitMessage(isArabic ? "يرجى استكمال جميع الحقول المطلوبة قبل الإرسال." : "Please complete all required fields before submitting.");
+      return;
+    }
+
+    setContactSubmitting(true);
+    setContactSubmitState("idle");
+    setContactSubmitMessage("");
+
+    try {
+      await submitContactForm({
+        fullName: contactForm.fullName.trim(),
+        company: contactForm.company.trim(),
+        phone: contactForm.phone.trim(),
+        email: contactForm.email.trim(),
+        service: serviceValue,
+        message: contactMessage.trim(),
+      });
+
+      setContactForm({
+        fullName: "",
+        company: "",
+        phone: "",
+        email: "",
+      });
+      setSelectedService("");
+      setCustomService("");
+      setContactMessage("");
+      setIsDropdownOpen(false);
+      setContactSubmitState("success");
+      setContactSubmitMessage(
+        isArabic
+          ? "تم إرسال طلبك بنجاح. سيتواصل فريق JHC معك خلال يوم عمل واحد."
+          : "Your request has been sent successfully. The JHC team will contact you within one business day.",
+      );
+    } catch (requestError) {
+      setContactSubmitState("error");
+      setContactSubmitMessage(
+        getAxiosErrorMessage(
+          requestError,
+          isArabic ? "تعذر إرسال الطلب الآن. يرجى المحاولة مرة أخرى." : "Unable to submit your request right now. Please try again.",
+        ),
+      );
+    } finally {
+      setContactSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     let frameId = 0;
@@ -868,10 +952,10 @@ export default function JhcLandingPage() {
         }
         @keyframes marquee-arabic {
           0% {
-            transform: translateX(-50%);
+            transform: translateX(0%);
           }
           100% {
-            transform: translateX(0%);
+            transform: translateX(50%);
           }
         }
         .animate-marquee {
@@ -881,14 +965,14 @@ export default function JhcLandingPage() {
           animation: marquee 14s linear infinite;
         }
         .animate-marquee-ticker-arabic {
-          animation: marquee-arabic 14s linear infinite;
+          animation: marquee-arabic 56s linear infinite;
         }
         @media (min-width: 768px) {
           .animate-marquee-ticker {
-            animation-duration: 17s;
+            animation-duration: 28s;
           }
           .animate-marquee-ticker-arabic {
-            animation-duration: 17s;
+            animation-duration: 56s;
           }
         }
         .animate-marquee:hover {
@@ -898,12 +982,17 @@ export default function JhcLandingPage() {
           animation-play-state: paused;
         }
       `}</style>
-      <section className="relative overflow-hidden rounded-b-[32px] bg-[#030e26] pb-10 pt-[112px] md:h-[1117px] md:rounded-b-[50px] md:pb-0 md:pt-0">
+      <section
+        className={[
+          "relative overflow-hidden rounded-b-[24px] bg-[#030e26] pb-10 pt-[112px] md:rounded-b-[24px] md:pb-0 md:pt-0",
+          isArabic ? "md:h-[980px]" : "md:h-[1020px]",
+        ].join(" ")}
+      >
         <div
           className="absolute inset-0 hidden opacity-100 md:block"
           style={{
             backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
+              "linear-gradient(rgba(255,255,255,0.0525) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.0525) 1px, transparent 1px)",
             backgroundPosition: "-18px 0",
             backgroundSize: "70px 68.94px",
           }}
@@ -912,7 +1001,7 @@ export default function JhcLandingPage() {
           className="absolute inset-0 opacity-100 md:hidden"
           style={{
             backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)",
+              "linear-gradient(rgba(255,255,255,0.03255) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03255) 1px, transparent 1px)",
             backgroundPosition: "-10px 0",
             backgroundSize: "44px 44px",
           }}
@@ -929,20 +1018,21 @@ export default function JhcLandingPage() {
         <div className="absolute left-[223px] top-[711px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
         <div className="absolute left-[1196px] top-[865px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
 
-        <div className="fixed left-1/2 top-6 z-50 w-[calc(100%-24px)] max-w-[1280px] -translate-x-1/2 md:w-[1280px]">
+        <div className="fixed left-1/2 top-6 z-50 w-[calc(100%-24px)] max-w-[1280px] -translate-x-1/2 md:w-[1280px]" dir="ltr">
           <div
             className="relative flex h-[72px] items-center justify-between rounded-[23px] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-200 md:h-[84px] md:px-[30px]"
-            dir={isArabic ? "ltr" : undefined}
+            dir={isArabic ? "ltr" : "ltr"}
             style={mobileNavSurfaceStyle}
           >
             <img
               alt="JHC"
-              className={["h-[34px] w-auto md:h-[42px]", isArabic ? "order-2 md:absolute md:right-[30px]" : "order-1"].join(" ")}
+              className={["h-[34px] w-auto md:h-[42px]", isArabic ? "order-2 md:absolute md:right-[30px]" : ""].join(" ")}
               src={logo}
             />
             <nav
               className={[
-                "absolute left-1/2 hidden -translate-x-1/2 items-center gap-8 text-[12px] font-bold transition-colors duration-200 md:flex",
+                "hidden items-center gap-8 text-[12px] font-bold transition-colors duration-200 md:flex",
+                isArabic ? "absolute left-1/2 -translate-x-1/2" : "flex-1 justify-center",
                 isArabic ? "" : "uppercase tracking-[1.7px]",
               ].join(" ")}
               style={{
@@ -983,7 +1073,7 @@ export default function JhcLandingPage() {
             <div
               className={[
                 "hidden items-center gap-3 md:flex",
-                isArabic ? "md:absolute md:left-[30px]" : "ml-auto",
+                isArabic ? "md:absolute md:left-[30px]" : "",
               ].join(" ")}
             >
               {isArabic ? (
@@ -1014,6 +1104,7 @@ export default function JhcLandingPage() {
               aria-expanded={mobileMenuOpen}
               aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
               className={["inline-flex size-11 items-center justify-center rounded-[14px] border border-white/15 bg-white/[0.05] text-white transition-colors duration-200 md:hidden", isArabic ? "order-1" : "order-2 ml-auto"].join(" ")}
+              style={navOnLight ? { color: "#0B1F4D" } : undefined}
               onClick={() => setMobileMenuOpen((open) => !open)}
               type="button"
             >
@@ -1037,18 +1128,39 @@ export default function JhcLandingPage() {
 	                <div className="mb-1">
 	                  {languageSwitcher({ language, isArabic, onLight: navOnLight, setLanguage, className: "w-full justify-center" })}
 	                </div>
-	                <nav className="flex flex-col gap-2" aria-label="Mobile navigation">
+	                <nav className={["flex flex-col gap-2", isArabic ? "text-right" : ""].join(" ")} aria-label="Mobile navigation">
                   {mobileNavSections.map(({ href, label }) => {
                     const isActive = activeSection === href;
 
                     return (
                       <a
                         key={href}
-                        className="rounded-[16px] border border-white/10 bg-white/[0.03] px-4 py-4 text-[13px] font-bold uppercase tracking-[1.4px] transition-colors duration-200"
+                        className={["rounded-[16px] border border-white/10 bg-white/[0.03] px-4 py-4 text-[13px] font-bold transition-colors duration-200", isArabic ? "text-right" : "uppercase tracking-[1.4px]"].join(" ")}
                         href={href}
                         onClick={handleNavClick(href)}
                         style={{
-                          color: isActive ? "#60a5fa" : "rgba(255,255,255,0.86)",
+                          borderColor: isActive
+                            ? navOnLight
+                              ? "#BFDBFE"
+                              : "rgba(96,165,250,0.28)"
+                            : navOnLight
+                              ? "rgba(11,31,77,0.08)"
+                              : "rgba(255,255,255,0.10)",
+                          background: isActive
+                            ? navOnLight
+                              ? "#EFF6FF"
+                              : "rgba(37,99,235,0.18)"
+                            : navOnLight
+                              ? "rgba(255,255,255,0.7)"
+                              : "rgba(255,255,255,0.03)",
+                          color: isActive
+                            ? navOnLight
+                              ? "#0B1F4D"
+                              : "#60a5fa"
+                            : navOnLight
+                              ? "#334155"
+                              : "rgba(255,255,255,0.86)",
+                          fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : undefined,
                         }}
                       >
                         {label}
@@ -1063,6 +1175,27 @@ export default function JhcLandingPage() {
                       className="inline-flex h-[54px] items-center justify-center rounded-[18px] border border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] px-5 text-[12px] font-bold uppercase tracking-[1.3px] text-white/90 backdrop-blur-[14px]"
                       onClick={() => setMobileMenuOpen(false)}
                       to="/talent-network#application-start"
+                      style={
+                        isArabic
+                          ? {
+                              ...(navOnLight
+                                ? {
+                                    borderColor: "rgba(11,31,77,0.12)",
+                                    background: "linear-gradient(180deg,rgba(255,255,255,0.88),rgba(248,250,252,0.82))",
+                                    color: "#0B1F4D",
+                                  }
+                                : {}),
+                              fontFamily: "'Cairo', system-ui, sans-serif",
+                              direction: "rtl",
+                            }
+                          : navOnLight
+                            ? {
+                                borderColor: "rgba(11,31,77,0.12)",
+                                background: "linear-gradient(180deg,rgba(255,255,255,0.88),rgba(248,250,252,0.82))",
+                                color: "#0B1F4D",
+                              }
+                            : undefined
+                      }
                     >
                       {heroCopy.mobileMenu.secondaryCta}
                     </Link>
@@ -1070,6 +1203,7 @@ export default function JhcLandingPage() {
                       className="inline-flex h-[54px] items-center justify-center rounded-[18px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] px-5 text-[12px] font-bold uppercase tracking-[1.3px] text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)]"
                       href="#contact"
                       onClick={handleNavClick("#contact")}
+                      style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif", direction: "rtl" } : undefined}
                     >
                       {heroCopy.mobileMenu.primaryCta}
                     </a>
@@ -1171,6 +1305,7 @@ export default function JhcLandingPage() {
               })}
             </div>
 
+            {/* TEMPORARILY DISABLED - Hero logo ticker will be restored later
             <div className="mt-8 text-left">
               <p className="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[2px] text-[#cbd5e1]" style={heroArabicFontStyle}>
                 {heroCopy.trustBanner.text}
@@ -1192,6 +1327,7 @@ export default function JhcLandingPage() {
                 </div>
               </div>
             </div>
+            */}
           </div>
         </div>
 
@@ -1212,9 +1348,9 @@ export default function JhcLandingPage() {
                   <>
                     نماذج تشغيل
                     <br />
-                    استراتيجية تقود
+                    استراتيجية <span className="text-[#3b82f6]">تقود</span>
                     <br />
-                    <span className="text-[#3b82f6]">نمواً</span> حقيقياً.
+                    <span className="text-[#3b82f6]">نمواً حقيقياً.</span>
                   </>
                 ) : (
                   <>
@@ -1236,7 +1372,10 @@ export default function JhcLandingPage() {
 
               <div className="mt-[40px] flex gap-[22px]">
                 <a
-                  className="inline-flex h-[66px] min-w-[232px] items-center justify-between rounded-[22px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] pl-[18px] pr-[17px] text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]"
+                  className={[
+                    "inline-flex h-[66px] items-center rounded-[22px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]",
+                    isArabic ? "w-fit justify-center gap-3 px-10" : "min-w-[232px] justify-between pl-[18px] pr-[17px]",
+                  ].join(" ")}
                   href="#contact"
                   style={heroArabicFontStyle}
                 >
@@ -1246,7 +1385,10 @@ export default function JhcLandingPage() {
                   </span>
                 </a>
                 <Link
-                  className="inline-flex h-[66px] min-w-[220px] items-center justify-between rounded-[22px] border border-white/25 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] pl-[18px] pr-[17px] text-[14px] font-medium text-white/90 backdrop-blur-[12px]"
+                  className={[
+                    "inline-flex h-[66px] items-center rounded-[22px] border border-white/25 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] text-[14px] font-medium text-white/90 backdrop-blur-[12px]",
+                    isArabic ? "w-fit justify-center gap-3 px-10" : "min-w-[220px] justify-between pl-[18px] pr-[17px]",
+                  ].join(" ")}
                   style={heroArabicFontStyle}
                   to="/talent-network#application-start"
                 >
@@ -1290,7 +1432,8 @@ export default function JhcLandingPage() {
 
           <div className="mt-[70px] grid h-[129px] grid-cols-5 items-center rounded-[24px] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.02))] px-8 backdrop-blur-[20px]">
             {metrics.map(({ value, label, icon: Icon }, index) => {
-              const metricCount = getMetricCountParts(value);
+              const metricDisplayValue = isArabic ? getArabicMobileMetricValue(value) : value;
+              const metricCount = getMetricCountParts(metricDisplayValue);
 
               return (
                 <div
@@ -1338,6 +1481,7 @@ export default function JhcLandingPage() {
             })}
           </div>
 
+          {/* TEMPORARILY DISABLED - Hero logo ticker will be restored later
           <div className="mt-[64px] mb-[48px]">
             <div className="flex items-center gap-[18px]">
               <p className="text-[11px] font-semibold uppercase tracking-[4px] text-[#cbd5e1]">
@@ -1349,6 +1493,7 @@ export default function JhcLandingPage() {
               {logoStrip()}
             </div>
           </div>
+          */}
         </div>
       </section>
 
@@ -1680,7 +1825,7 @@ export default function JhcLandingPage() {
                 {servicesCopy.intro}
               </p>
               <a
-                className="mt-4 inline-flex h-10 items-center gap-2 rounded-full bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white"
+                className="mt-4 inline-flex h-10 items-center gap-2 rounded-[16px] bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)]"
                 href="#contact"
                 style={isArabic ? heroArabicFontStyle : undefined}
               >
@@ -2035,17 +2180,21 @@ export default function JhcLandingPage() {
 
             <div className="mt-8">
               <div className="space-y-4">
-                {CONTACT_FORM_FIELDS.map(({ label, placeholder, required }) => (
+                {CONTACT_FORM_FIELDS.map(({ label, placeholder, required }, index) => {
+                  const fieldKey = contactFieldKeys[index];
+                  return (
                   <label key={label} className="flex flex-col gap-2">
                     <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{label}{required ? " *" : ""}</span>
                     <input
+                      value={contactForm[fieldKey]}
+                      onChange={(event) => updateContactField(fieldKey, event.target.value)}
                       className={["h-12 rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
                       dir={isArabic ? "rtl" : "ltr"}
                       placeholder={placeholder}
                       style={arabicContactFontStyle}
                     />
                   </label>
-                ))}
+                )})}
 
                 <label className="relative flex flex-col gap-2">
                   <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
@@ -2121,6 +2270,8 @@ export default function JhcLandingPage() {
               <label className="mt-4 flex flex-col gap-2">
                 <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.messageLabel} *</span>
                 <textarea
+                  value={contactMessage}
+                  onChange={(event) => setContactMessage(event.target.value)}
                   className={["h-[118px] rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 py-3 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
                   dir={isArabic ? "rtl" : "ltr"}
                   placeholder={CONTACT_SECTION_COPY.messagePlaceholder}
@@ -2130,8 +2281,22 @@ export default function JhcLandingPage() {
 
               <div className="mt-5">
                 <p className={["text-[11px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.responseNote}</p>
-                <button className="mt-4 h-10 w-full rounded-full bg-[#0b1f4d] px-6 text-[12px] font-bold uppercase tracking-[1.2px] text-white" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                  {CONTACT_SECTION_COPY.submitLabel}
+                {contactSubmitMessage ? (
+                  <p
+                    className={["mt-3 text-[11px]", isArabic ? "text-right" : ""].join(" ")}
+                    style={{ color: contactSubmitState === "error" ? "#DC2626" : "#16A34A", ...arabicContactFontStyle }}
+                  >
+                    {contactSubmitMessage}
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void handleContactSubmit()}
+                  disabled={contactSubmitting}
+                  className="mt-4 h-10 w-full rounded-[16px] bg-[#0b1f4d] px-6 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)]"
+                  style={{ ...(isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : {}), opacity: contactSubmitting ? 0.75 : 1, cursor: contactSubmitting ? "not-allowed" : "pointer" }}
+                >
+                  {contactSubmitting ? (isArabic ? "جارٍ الإرسال..." : "Sending...") : CONTACT_SECTION_COPY.submitLabel}
                 </button>
               </div>
             </div>
@@ -2197,17 +2362,21 @@ export default function JhcLandingPage() {
             <div className="mt-10 grid grid-cols-[1fr_316px] gap-10">
               <div>
                 <div className="grid grid-cols-2 gap-4">
-                  {CONTACT_FORM_FIELDS.map(({ label, placeholder, required }) => (
+                  {CONTACT_FORM_FIELDS.map(({ label, placeholder, required }, index) => {
+                    const fieldKey = contactFieldKeys[index];
+                    return (
 	                  <label key={label} className="flex flex-col gap-2">
 	                    <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{label}{required ? " *" : ""}</span>
 	                    <input
+                        value={contactForm[fieldKey]}
+                        onChange={(event) => updateContactField(fieldKey, event.target.value)}
 	                      className={["h-12 rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
                         dir={isArabic ? "rtl" : "ltr"}
 	                      placeholder={placeholder}
                         style={arabicContactFontStyle}
 	                    />
 	                  </label>
-                  ))}
+                  )})}
 
                   <label className="col-span-2 relative flex flex-col gap-2">
 	                    <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
@@ -2284,6 +2453,8 @@ export default function JhcLandingPage() {
                 <label className="mt-4 flex flex-col gap-2">
 	                  <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.messageLabel} *</span>
                   <textarea
+                    value={contactMessage}
+                    onChange={(event) => setContactMessage(event.target.value)}
                     className={["h-[118px] rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 py-3 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
                     dir={isArabic ? "rtl" : "ltr"}
 	                    placeholder={CONTACT_SECTION_COPY.messagePlaceholder}
@@ -2293,9 +2464,25 @@ export default function JhcLandingPage() {
 
                 <div className="mt-5 flex items-center justify-between">
 	                  <p className={["text-[11px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.responseNote}</p>
-                  <button className="h-10 rounded-full bg-[#0b1f4d] px-6 text-[12px] font-bold uppercase tracking-[1.2px] text-white" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-	                    {CONTACT_SECTION_COPY.submitLabel}
-                  </button>
+                  <div className="flex items-center gap-4">
+                    {contactSubmitMessage ? (
+                      <p
+                        className={["text-[11px]", isArabic ? "text-right" : ""].join(" ")}
+                        style={{ color: contactSubmitState === "error" ? "#DC2626" : "#16A34A", ...arabicContactFontStyle }}
+                      >
+                        {contactSubmitMessage}
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void handleContactSubmit()}
+                      disabled={contactSubmitting}
+                      className="h-10 rounded-[16px] bg-[#0b1f4d] px-6 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)]"
+                      style={{ ...(isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : {}), opacity: contactSubmitting ? 0.75 : 1, cursor: contactSubmitting ? "not-allowed" : "pointer" }}
+                    >
+	                    {contactSubmitting ? (isArabic ? "جارٍ الإرسال..." : "Sending...") : CONTACT_SECTION_COPY.submitLabel}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -2548,8 +2735,22 @@ export default function JhcLandingPage() {
               {FOOTER_COPY.description}
             </p>
             <div className="flex gap-2" dir="ltr">
-              {socialButton(Linkedin, { href: SOCIAL_LINKS.linkedin })}
-              {socialButton(Facebook, { href: SOCIAL_LINKS.facebook })}
+              {socialButton(Linkedin, {
+                className: "size-9",
+                iconClassName: "text-[#94a3b8]",
+                iconSize: 13,
+                strokeWidth: 1.6,
+                fill: true,
+                href: SOCIAL_LINKS.linkedin,
+              })}
+              {socialButton(Facebook, {
+                className: "size-9",
+                iconClassName: "text-[#94a3b8]",
+                iconSize: 13,
+                strokeWidth: 1.6,
+                fill: true,
+                href: SOCIAL_LINKS.facebook,
+              })}
             </div>
           </div>
 

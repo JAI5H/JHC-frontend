@@ -30,7 +30,7 @@ export const landing = {
       text: "محل ثقة كبرى الشركات في دول مجلس التعاون الخليجي",
     },
     operatingModelPanel: {
-      eyebrow: "نهجنا التشغيلي",
+      eyebrow: "من نحن",
       title: "إعادة صياغة مفهوم القوى\nالعاملة لعصر الخليج العربي.",
       description:
         "نحن لا نكتفي بتوظيف الكفاءات، بل نعيد تصميم طريقة عمل المؤسسات. تقدم JHC أكثر من 15 عامًا من الخبرة الميدانية في دول الخليج لبناء أطر عمل بشرية تتميز بالمرونة والامتثال، ومصممة خصيصًا لتحقيق نمو مستدام.",
@@ -73,14 +73,14 @@ export const landing = {
     {
       city: "القاهرة الجديدة",
       country: "مصر",
-      phone: "+20 100 000 0000",
-      email: "cairo@jhc-group.com",
+      phone: "+201080004343",
+      email: "info@jisrhc.com",
     },
     {
       city: "الرياض",
       country: "المملكة العربية السعودية",
-      phone: "+966 11 234 5678",
-      email: "riyadh@jhc-group.com",
+      phone: "+966592368363",
+      email: "info@jisrhc.com",
     },
   ],
   footerCompanyLinks: [
@@ -99,9 +99,9 @@ export const landing = {
     { label: "الاستشارات الاستراتيجية", href: "#services" },
   ],
   footerContactChannels: [
-    ["استفسارات عامة", "info@jhc-group.com"],
-    ["شبكة المواهب", "talent@jhc-group.com"],
-    ["شراكات الأعمال", "partners@jhc-group.com"],
+    ["استفسارات عامة", "info@jisrhc.com"],
+    ["شبكة المواهب", "info@jisrhc.com"],
+    ["شراكات الأعمال", "info@jisrhc.com"],
   ],
   footerPolicyLinks: ["سياسة ملفات الارتباط", "سياسة الخصوصية", "شروط الاستخدام"],
   footerSectionTitles: {

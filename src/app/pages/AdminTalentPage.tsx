@@ -15,13 +15,16 @@ import { AdminLayout } from "../components/admin/AdminLayout";
 import { hasAdminAccessToken } from "../components/admin/adminSession";
 import {
   deriveCandidateStatsFromList,
+  type CandidateStatus,
   downloadCandidateCv,
   exportCandidates,
   getCandidateStats,
   getCandidates,
   type CandidateRecord,
   type CandidateStats,
+  updateCandidateStatus,
 } from "../../services/api/candidatesApi";
+import { getAxiosErrorMessage } from "../../services/api/utils";
 
 type Status = "Shortlisted" | "Pending" | "Rejected" | "Interview" | "New" | "Reviewed" | "Hired";
 
@@ -35,19 +38,46 @@ type CandidateRow = {
   status: Status;
 };
 
+type WorkflowStats = {
+  totalApplicants: number;
+  newCount: number;
+  underReviewCount: number;
+  shortlistedCount: number;
+  hiredCount: number;
+  rejectedCount: number;
+};
+
 const PAGE_SIZE = 10;
 const INDUSTRIES = ["Energy & Oil", "Technology", "Finance", "Healthcare", "Real Estate", "Telecom", "Government", "Education", "Consulting"];
 const EXP_LEVELS = ["0–2 Years", "3–5 Years", "6–9 Years", "10+ Years"];
 const LOCATIONS = ["Egypt", "Saudi Arabia", "UAE", "Qatar", "Kuwait", "Bahrain", "Oman", "Jordan"];
+const STATUS_FILTER_OPTIONS = ["New", "Under Review", "Shortlisted", "Hired", "Rejected"];
 
 const STATUS_CONFIG: Record<Status, { bg: string; text: string; dot: string; label: string }> = {
   Shortlisted: { bg: "#F0FDF4", text: "#16A34A", dot: "#16A34A", label: "Shortlisted" },
-  Pending: { bg: "#FFFBEB", text: "#D97706", dot: "#D97706", label: "Pending Review" },
+  Pending: { bg: "#FFFBEB", text: "#D97706", dot: "#D97706", label: "Under Review" },
   Rejected: { bg: "#F8FAFC", text: "#64748B", dot: "#94A3B8", label: "Rejected" },
-  Interview: { bg: "#EFF6FF", text: "#1D4ED8", dot: "#1D4ED8", label: "Interview" },
+  Interview: { bg: "#EFF6FF", text: "#1D4ED8", dot: "#1D4ED8", label: "Under Review" },
   New: { bg: "#EFF6FF", text: "#1D4ED8", dot: "#1D4ED8", label: "New" },
-  Reviewed: { bg: "#F8FAFC", text: "#0B1F4D", dot: "#0B1F4D", label: "Reviewed" },
+  Reviewed: { bg: "#F8FAFC", text: "#0B1F4D", dot: "#0B1F4D", label: "Under Review" },
   Hired: { bg: "#F0FDF4", text: "#16A34A", dot: "#16A34A", label: "Hired" },
+};
+
+const CANDIDATE_WORKFLOW_ACTIONS: CandidateStatus[] = [
+  "New",
+  "Reviewed",
+  "Shortlisted",
+  "Hired",
+  "Rejected",
+];
+
+const STATUS_ACTION_LABELS: Record<CandidateStatus, string> = {
+  New: "New",
+  Reviewed: "Under Review",
+  Shortlisted: "Shortlisted",
+  Interview: "Under Review",
+  Hired: "Hired",
+  Rejected: "Rejected",
 };
 
 function normalizeStatus(value: string): Status {
@@ -87,6 +117,18 @@ function matchesExperienceLevel(candidate: CandidateRecord, selectedLevel: strin
   return true;
 }
 
+function matchesStatusFilter(candidate: CandidateRecord, selectedStatus: string) {
+  if (!selectedStatus) return true;
+
+  const normalizedStatus = normalizeStatus(candidate.status);
+
+  if (selectedStatus === "Under Review") {
+    return normalizedStatus === "Reviewed" || normalizedStatus === "Interview" || normalizedStatus === "Pending";
+  }
+
+  return normalizedStatus === selectedStatus;
+}
+
 function candidateToRow(candidate: CandidateRecord): CandidateRow {
   return {
     id: candidate.id,
@@ -97,6 +139,54 @@ function candidateToRow(candidate: CandidateRecord): CandidateRow {
     location: candidate.currentCountry,
     status: normalizeStatus(candidate.status),
   };
+}
+
+function buildWorkflowStats(source: CandidateStats): WorkflowStats {
+  return {
+    totalApplicants: source.totalCandidates,
+    newCount: source.newCandidates,
+    underReviewCount: source.reviewedCandidates + source.interviewCandidates,
+    shortlistedCount: source.shortlistedCandidates,
+    hiredCount: source.hiredCandidates,
+    rejectedCount: source.rejectedCandidates,
+  };
+}
+
+function getNextStatsAfterStatusUpdate(
+  currentStats: CandidateStats,
+  previousStatus: CandidateStatus,
+  nextStatus: CandidateStatus,
+): CandidateStats {
+  if (previousStatus === nextStatus) {
+    return currentStats;
+  }
+
+  const nextStats = {
+    ...currentStats,
+  };
+
+  const decrement = (status: CandidateStatus) => {
+    if (status === "New") nextStats.newCandidates = Math.max(0, nextStats.newCandidates - 1);
+    if (status === "Reviewed") nextStats.reviewedCandidates = Math.max(0, nextStats.reviewedCandidates - 1);
+    if (status === "Interview") nextStats.interviewCandidates = Math.max(0, nextStats.interviewCandidates - 1);
+    if (status === "Shortlisted") nextStats.shortlistedCandidates = Math.max(0, nextStats.shortlistedCandidates - 1);
+    if (status === "Hired") nextStats.hiredCandidates = Math.max(0, nextStats.hiredCandidates - 1);
+    if (status === "Rejected") nextStats.rejectedCandidates = Math.max(0, nextStats.rejectedCandidates - 1);
+  };
+
+  const increment = (status: CandidateStatus) => {
+    if (status === "New") nextStats.newCandidates += 1;
+    if (status === "Reviewed") nextStats.reviewedCandidates += 1;
+    if (status === "Interview") nextStats.interviewCandidates += 1;
+    if (status === "Shortlisted") nextStats.shortlistedCandidates += 1;
+    if (status === "Hired") nextStats.hiredCandidates += 1;
+    if (status === "Rejected") nextStats.rejectedCandidates += 1;
+  };
+
+  decrement(previousStatus);
+  increment(nextStatus);
+
+  return nextStats;
 }
 
 function StatusBadge({ status }: { status: Status }) {
@@ -116,7 +206,7 @@ function FilterDropdown({ label, options, value, onChange }: { label: string; op
     <div className="relative">
       <button
         onClick={() => setOpen((current) => !current)}
-        className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all"
+        className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
         style={{ border: `1px solid ${value ? "#1D4ED8" : "#E2E8F0"}`, color: value ? "#1D4ED8" : "#64748B", background: value ? "#EFF6FF" : "#ffffff" }}
       >
         <Filter size={13} />
@@ -149,25 +239,98 @@ function FilterDropdown({ label, options, value, onChange }: { label: string; op
   );
 }
 
+function CandidateStatusActionsMenu({
+  candidate,
+  open,
+  onToggle,
+  onClose,
+  onSelect,
+  updating,
+}: {
+  candidate: CandidateRow;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onSelect: (nextStatus: CandidateStatus) => void;
+  updating: boolean;
+}) {
+  return (
+    <div className="relative inline-flex">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
+        style={{ borderColor: "#E2E8F0", color: "#0B1F4D", background: "#ffffff" }}
+      >
+        Update Status
+        <ChevronDown size={12} />
+      </button>
+
+      {open ? (
+        <>
+          <div className="fixed inset-0 z-10" onClick={onClose} />
+          <div
+            className="absolute right-0 top-full z-20 mt-2 w-[220px] overflow-hidden rounded-xl bg-white"
+            style={{ border: "1px solid #E2E8F0", boxShadow: "0 12px 32px rgba(15,23,42,0.12)" }}
+          >
+            <div className="border-b px-3 py-2.5 text-[11px] leading-5" style={{ borderColor: "#E2E8F0", color: "#94A3B8" }}>
+              Move {candidate.name} through the review workflow.
+            </div>
+            <div className="p-2">
+              {CANDIDATE_WORKFLOW_ACTIONS.map((action) => (
+                <button
+                  key={action}
+                  type="button"
+                  disabled={updating}
+                  onClick={() => onSelect(action)}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors"
+                  style={{ color: "#0B1F4D", background: "transparent", cursor: updating ? "not-allowed" : "pointer" }}
+                  onMouseEnter={(e) => {
+                    if (!updating) {
+                      (e.currentTarget as HTMLElement).style.background = "#F8FAFC";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!updating) {
+                      (e.currentTarget as HTMLElement).style.background = "transparent";
+                    }
+                  }}
+                >
+                  <span>{STATUS_ACTION_LABELS[action]}</span>
+                  <span style={{ color: "#94A3B8" }}>{updating ? "Saving..." : "Apply"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export default function AdminTalentPage() {
   const [search, setSearch] = useState("");
   const [industry, setIndustry] = useState("");
   const [expLevel, setExpLevel] = useState("");
   const [location, setLocation] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [stats, setStats] = useState<CandidateStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [exporting, setExporting] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [statusActionMenuId, setStatusActionMenuId] = useState<number | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
 
-  const hasFilters = Boolean(industry || expLevel || location || search);
+  const hasFilters = Boolean(industry || expLevel || location || statusFilter || search);
 
   useEffect(() => {
     setPage(1);
-  }, [search, industry, expLevel, location]);
+  }, [search, industry, expLevel, location, statusFilter]);
 
   useEffect(() => {
     let active = true;
@@ -178,6 +341,7 @@ export default function AdminTalentPage() {
       setStats(null);
       setTotalCount(0);
       setError("");
+      setSuccess("");
       return () => {
         active = false;
       };
@@ -186,6 +350,7 @@ export default function AdminTalentPage() {
     const loadCandidates = async () => {
       setIsLoading(true);
       setError("");
+      setSuccess("");
 
       try {
         const [candidatesResult, statsResult] = await Promise.allSettled([
@@ -202,7 +367,9 @@ export default function AdminTalentPage() {
         if (!active) return;
 
         if (candidatesResult.status === "fulfilled") {
-          const filteredItems = candidatesResult.value.items.filter((candidate) => matchesExperienceLevel(candidate, expLevel));
+          const filteredItems = candidatesResult.value.items.filter(
+            (candidate) => matchesExperienceLevel(candidate, expLevel) && matchesStatusFilter(candidate, statusFilter),
+          );
           setCandidates(filteredItems);
           setTotalCount(candidatesResult.value.totalCount);
 
@@ -239,17 +406,25 @@ export default function AdminTalentPage() {
     return () => {
       active = false;
     };
-  }, [expLevel, industry, location, page, search]);
+  }, [expLevel, industry, location, page, search, statusFilter]);
 
   const rows = useMemo(() => candidates.map(candidateToRow), [candidates]);
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const visibleCountStart = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const visibleCountEnd = totalCount === 0 ? 0 : Math.min(page * PAGE_SIZE, totalCount);
+  const derivedStats = useMemo(() => deriveCandidateStatsFromList(candidates, totalCount), [candidates, totalCount]);
+  const workflowStats = useMemo(
+    () => buildWorkflowStats(stats ?? derivedStats),
+    [derivedStats, stats],
+  );
 
   const metrics = [
-    { label: "Total Applicants", value: stats?.totalCandidates ?? totalCount, delta: "Live candidate total", up: true, color: "#1D4ED8" },
-    { label: "Pending Review", value: (stats?.newCandidates ?? 0) + (stats?.reviewedCandidates ?? 0), delta: "Awaiting recruiter action", up: false, color: "#D97706" },
-    { label: "Shortlisted", value: stats?.shortlistedCandidates ?? 0, delta: "Ready for next step", up: true, color: "#16A34A" },
+    { label: "Total Applicants", value: workflowStats.totalApplicants, delta: "Live candidate total", color: "#1D4ED8" },
+    { label: "New", value: workflowStats.newCount, delta: "Recently submitted", color: "#2563EB" },
+    { label: "Under Review", value: workflowStats.underReviewCount, delta: "Awaiting recruiter action", color: "#D97706" },
+    { label: "Shortlisted", value: workflowStats.shortlistedCount, delta: "Ready for next step", color: "#16A34A" },
+    { label: "Hired", value: workflowStats.hiredCount, delta: "Successfully completed", color: "#059669" },
+    { label: "Rejected", value: workflowStats.rejectedCount, delta: "Closed applications", color: "#64748B" },
   ];
 
   const handleExport = async () => {
@@ -266,11 +441,15 @@ export default function AdminTalentPage() {
         pageSize: PAGE_SIZE,
       });
 
-      const blob = new Blob([response.data], { type: response.headers["content-type"] ?? "text/csv;charset=utf-8;" });
+      const blob = new Blob([response.data], {
+        type:
+          response.headers["content-type"] ??
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "jhc-talent-pool.csv";
+      anchor.download = "jhc-talent-pool.xlsx";
       anchor.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -301,20 +480,69 @@ export default function AdminTalentPage() {
     }
   };
 
+  const handleCandidateStatusUpdate = async (candidate: CandidateRow, nextStatus: CandidateStatus) => {
+    if (statusUpdatingId) return;
+
+    const previousStatus = candidate.status === "Pending" ? "Reviewed" : candidate.status;
+    setStatusUpdatingId(candidate.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      await updateCandidateStatus(candidate.id, nextStatus);
+
+      setCandidates((current) =>
+        current.map((item) =>
+            item.id === candidate.id
+            ? {
+                ...item,
+                status: nextStatus,
+              }
+            : item,
+        ),
+      );
+
+      setStats((currentStats) =>
+        currentStats ? getNextStatsAfterStatusUpdate(currentStats, previousStatus, nextStatus) : currentStats,
+      );
+
+      try {
+        const freshStats = await getCandidateStats();
+        setStats(freshStats);
+      } catch {
+        setStats((currentStats) => currentStats ?? deriveCandidateStatsFromList(
+          candidates.map((item) => (item.id === candidate.id ? { ...item, status: nextStatus } : item)),
+          totalCount,
+        ));
+      }
+
+      setSuccess(`${candidate.name} was moved to ${STATUS_ACTION_LABELS[nextStatus]}.`);
+      setStatusActionMenuId(null);
+    } catch (requestError) {
+      setError(getAxiosErrorMessage(requestError, "Unable to update candidate status right now."));
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
   return (
     <AdminLayout title="Talent Pool Management">
       <div className="flex flex-col gap-6">
-        {error ? (
+        {error || success ? (
           <div
             className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm"
-            style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#DC2626" }}
+            style={{
+              background: error ? "#FEF2F2" : "#F0FDF4",
+              border: error ? "1px solid #FCA5A5" : "1px solid #BBF7D0",
+              color: error ? "#DC2626" : "#15803D",
+            }}
           >
             <AlertCircle size={14} style={{ flexShrink: 0 }} />
-            {error}
+            {error || success}
           </div>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {metrics.map((metric) => (
             <div key={metric.label} className="flex flex-col gap-3 rounded-xl bg-white p-5" style={{ border: "1px solid #E2E8F0" }}>
               <div className="flex items-center justify-between">
@@ -324,8 +552,8 @@ export default function AdminTalentPage() {
               <div style={{ fontSize: "2rem", fontWeight: 900, color: "#0B1F4D", lineHeight: 1, letterSpacing: "-0.025em" }}>
                 {isLoading ? "..." : metric.value.toLocaleString("en-US")}
               </div>
-              <div className="text-xs font-medium" style={{ color: metric.up ? "#16A34A" : "#D97706" }}>
-                {metric.up ? "↑" : "●"} {metric.delta}
+              <div className="text-xs font-medium" style={{ color: "#64748B" }}>
+                ● {metric.delta}
               </div>
             </div>
           ))}
@@ -355,12 +583,14 @@ export default function AdminTalentPage() {
             <FilterDropdown label="Industry" options={INDUSTRIES} value={industry} onChange={setIndustry} />
             <FilterDropdown label="Experience" options={EXP_LEVELS} value={expLevel} onChange={setExpLevel} />
             <FilterDropdown label="Location" options={LOCATIONS} value={location} onChange={setLocation} />
+            <FilterDropdown label="Status" options={STATUS_FILTER_OPTIONS} value={statusFilter} onChange={setStatusFilter} />
             {hasFilters ? (
               <button
                 onClick={() => {
                   setIndustry("");
                   setExpLevel("");
                   setLocation("");
+                  setStatusFilter("");
                   setSearch("");
                 }}
                 className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
@@ -372,7 +602,7 @@ export default function AdminTalentPage() {
             <button
               onClick={() => void handleExport()}
               disabled={exporting}
-              className="ml-auto inline-flex items-center gap-1.5 border px-3 py-2 text-xs font-medium transition-all"
+              className="ml-auto inline-flex items-center gap-1.5 border px-3 py-2 text-xs font-medium transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
               style={{
                 borderRadius: "16px",
                 borderColor: exporting ? "#86EFAC" : "#16A34A",
@@ -440,28 +670,38 @@ export default function AdminTalentPage() {
                       <td className="px-6 py-4 text-sm" style={{ color: "#64748B" }}>{candidate.location}</td>
                       <td className="px-6 py-4"><StatusBadge status={candidate.status} /></td>
                       <td className="px-6 py-4">
-                        <button
-                          onClick={() => void handleDownloadCv(candidate.id)}
-                          disabled={downloadingId === candidate.id}
-                          className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all"
-                          style={{ borderColor: "#E2E8F0", color: "#0B1F4D", cursor: downloadingId === candidate.id ? "not-allowed" : "pointer" }}
-                          onMouseEnter={(e) => {
-                            if (downloadingId !== candidate.id) {
-                              (e.currentTarget as HTMLElement).style.background = "#0B1F4D";
-                              (e.currentTarget as HTMLElement).style.color = "#ffffff";
-                              (e.currentTarget as HTMLElement).style.borderColor = "#0B1F4D";
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (downloadingId !== candidate.id) {
-                              (e.currentTarget as HTMLElement).style.background = "transparent";
-                              (e.currentTarget as HTMLElement).style.color = "#0B1F4D";
-                              (e.currentTarget as HTMLElement).style.borderColor = "#E2E8F0";
-                            }
-                          }}
-                        >
-                          <Download size={12} /> {downloadingId === candidate.id ? "Downloading..." : "Download CV"}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => void handleDownloadCv(candidate.id)}
+                            disabled={downloadingId === candidate.id}
+                            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
+                            style={{ borderColor: "#E2E8F0", color: "#0B1F4D", cursor: downloadingId === candidate.id ? "not-allowed" : "pointer" }}
+                            onMouseEnter={(e) => {
+                              if (downloadingId !== candidate.id) {
+                                (e.currentTarget as HTMLElement).style.background = "#0B1F4D";
+                                (e.currentTarget as HTMLElement).style.color = "#ffffff";
+                                (e.currentTarget as HTMLElement).style.borderColor = "#0B1F4D";
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (downloadingId !== candidate.id) {
+                                (e.currentTarget as HTMLElement).style.background = "transparent";
+                                (e.currentTarget as HTMLElement).style.color = "#0B1F4D";
+                                (e.currentTarget as HTMLElement).style.borderColor = "#E2E8F0";
+                              }
+                            }}
+                          >
+                            <Download size={12} /> {downloadingId === candidate.id ? "Downloading..." : "Download CV"}
+                          </button>
+                          <CandidateStatusActionsMenu
+                            candidate={candidate}
+                            open={statusActionMenuId === candidate.id}
+                            onToggle={() => setStatusActionMenuId((current) => (current === candidate.id ? null : candidate.id))}
+                            onClose={() => setStatusActionMenuId(null)}
+                            onSelect={(nextStatus) => void handleCandidateStatusUpdate(candidate, nextStatus)}
+                            updating={statusUpdatingId === candidate.id}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -489,7 +729,7 @@ export default function AdminTalentPage() {
                   <button
                     key={pageNumber}
                     onClick={() => setPage(pageNumber)}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-medium transition-all"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border text-sm font-medium transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                     style={{ borderColor: page === pageNumber ? "#1D4ED8" : "#E2E8F0", background: page === pageNumber ? "#1D4ED8" : "transparent", color: page === pageNumber ? "#ffffff" : "#64748B" }}
                   >
                     {pageNumber}

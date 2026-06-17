@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertCircle,
   ChevronDown,
@@ -12,7 +12,15 @@ import {
 } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
 import { getAdminSession, isSuperAdmin, setAdminSession } from "../components/admin/adminSession";
-import { changeAdminEmail, changeAdminPassword, addAdministrator } from "../../services/api/settingsApi";
+import {
+  addAdministrator,
+  changeAdminEmail,
+  changeAdminPassword,
+  getProfileSettings,
+  getSystemSettings,
+  saveProfileSettings,
+  saveSystemSettings,
+} from "../../services/api/settingsApi";
 import { getAxiosErrorMessage } from "../../services/api/utils";
 
 type Tab = "profile" | "system";
@@ -21,8 +29,6 @@ const TABS: { key: Tab; icon: React.ReactNode; label: string }[] = [
   { key: "profile", icon: <User size={15} />, label: "Profile Settings" },
   { key: "system", icon: <Settings2 size={15} />, label: "System Configurations" },
 ];
-
-const REGIONS = ["All Regions", "GCC & Egypt Hubs", "Saudi Arabia Hub", "Egypt Hub", "UAE Hub", "Qatar Hub", "Kuwait Hub"];
 
 const inputSt: React.CSSProperties = {
   width: "100%",
@@ -160,13 +166,73 @@ function ProfileTab() {
   const [passwordSuccess, setPasswordSuccess] = useState("");
   const [adminError, setAdminError] = useState("");
   const [adminSuccess, setAdminSuccess] = useState("");
+  const [profileLoading, setProfileLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [adminLoading, setAdminLoading] = useState(false);
 
-  const handleUnsupportedPreferencesSave = () => {
+  useEffect(() => {
+    let active = true;
+
+    const loadProfile = async () => {
+      try {
+        const profile = await getProfileSettings();
+        if (!active) return;
+        setForm({
+          name: profile.fullName,
+          email: profile.contactEmail,
+          region: profile.region,
+        });
+      } catch {
+        if (!active) return;
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSaveProfile = async () => {
+    setProfileError("");
     setProfileSuccess("");
-    setProfileError("No backend endpoint exists for saving profile preferences yet.");
+
+    if (!form.name.trim()) {
+      setProfileError("Admin full name is required.");
+      return;
+    }
+
+    if (!form.email.trim() || !form.email.includes("@")) {
+      setProfileError("Enter a valid contact email.");
+      return;
+    }
+
+    setProfileLoading(true);
+
+    try {
+      await saveProfileSettings({
+        fullName: form.name.trim(),
+        contactEmail: form.email.trim(),
+        region: form.region,
+      });
+
+      if (session) {
+        setAdminSession({
+          ...session,
+          name: form.name.trim(),
+          email: form.email.trim(),
+          region: form.region,
+        });
+      }
+
+      setProfileSuccess("Profile preferences saved successfully.");
+    } catch (requestError) {
+      setProfileError(getAxiosErrorMessage(requestError, "Unable to save profile preferences right now."));
+    } finally {
+      setProfileLoading(false);
+    }
   };
 
   const handleSaveEmail = async () => {
@@ -333,13 +399,14 @@ function ProfileTab() {
       <FeedbackBanner error={profileError} success={profileSuccess} />
 
       <div className="flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
-        <span className="text-sm" style={{ color: "#94A3B8" }}>Profile preferences remain read-only until a matching backend endpoint is available.</span>
+        <span className="text-sm" style={{ color: "#94A3B8" }}>Profile preferences update your account identity and contact details across the admin portal.</span>
         <button
-          onClick={handleUnsupportedPreferencesSave}
-          className="inline-flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-white transition-colors"
-          style={{ background: "#1D4ED8" }}
+          onClick={() => void handleSaveProfile()}
+          disabled={profileLoading}
+          className="inline-flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-white transition-[transform,background-color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
+          style={{ background: profileLoading ? "#94A3B8" : "#1D4ED8", cursor: profileLoading ? "not-allowed" : "pointer" }}
         >
-          <Save size={14} /> Save Preferences
+          <Save size={14} /> {profileLoading ? "Saving..." : "Save Preferences"}
         </button>
       </div>
 
@@ -459,7 +526,63 @@ function ProfileTab() {
 }
 
 function SystemTab() {
+  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState("30");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSystemSettings = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const settings = await getSystemSettings();
+        if (!active) return;
+        setSessionTimeoutMinutes(String(settings.sessionTimeoutMinutes));
+      } catch (requestError) {
+        if (!active) return;
+        setError(getAxiosErrorMessage(requestError, "Unable to load system configuration right now."));
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadSystemSettings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSaveSystemConfig = async () => {
+    setError("");
+    setSuccess("");
+
+    const parsedTimeout = Number(sessionTimeoutMinutes);
+    if (!Number.isFinite(parsedTimeout) || parsedTimeout <= 0) {
+      setError("Session timeout must be a valid positive number.");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      await saveSystemSettings({
+        sessionTimeoutMinutes: parsedTimeout,
+      });
+      setSuccess("System configuration saved successfully.");
+    } catch (requestError) {
+      setError(getAxiosErrorMessage(requestError, "Unable to save system configuration right now."));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-8">
@@ -468,13 +591,21 @@ function SystemTab() {
         <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Control platform-wide behavior, security, and defaults.</p>
       </div>
 
-      <FeedbackBanner error={error} success="" />
+      <FeedbackBanner error={error} success={success} />
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label style={labelSt}>Session Timeout (minutes)</label>
-          <input type="number" value="30" disabled style={disabledSt} />
-          <p className="mt-1.5 text-xs" style={{ color: "#94A3B8" }}>Session timeout settings are enforced by the backend and are not editable from Swagger yet.</p>
+          <input
+            type="number"
+            value={sessionTimeoutMinutes}
+            onChange={(event) => setSessionTimeoutMinutes(event.target.value)}
+            disabled={loading || saving}
+            style={loading ? disabledSt : inputSt}
+            onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")}
+            onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")}
+          />
+          <p className="mt-1.5 text-xs" style={{ color: "#94A3B8" }}>Session timeout is now synchronized with the backend system configuration.</p>
         </div>
         <div>
           <label style={labelSt}>Max CV Upload Size (MB)</label>
@@ -484,11 +615,12 @@ function SystemTab() {
       </div>
       <div className="flex justify-end border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
         <button
-          onClick={() => setError("No backend endpoint exists for editable system configuration yet.")}
+          onClick={() => void handleSaveSystemConfig()}
+          disabled={loading || saving}
           className="inline-flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-white transition-colors"
-          style={{ background: "#1D4ED8" }}
+          style={{ background: loading || saving ? "#94A3B8" : "#1D4ED8", cursor: loading || saving ? "not-allowed" : "pointer" }}
         >
-          <Save size={14} /> Save System Config
+          <Save size={14} /> {saving ? "Saving..." : "Save System Config"}
         </button>
       </div>
     </div>
@@ -508,7 +640,7 @@ export default function AdminSettingsPage() {
               <button
                 key={tabOption.key}
                 onClick={() => setTab(tabOption.key)}
-                className="flex flex-1 items-center justify-center gap-2.5 px-5 py-3.5 text-sm font-medium transition-all duration-150"
+                className="flex flex-1 items-center justify-center gap-2.5 px-5 py-3.5 text-sm font-medium transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                 style={{
                   background: active ? "#EFF6FF" : "transparent",
                   color: active ? "#1D4ED8" : "#64748B",

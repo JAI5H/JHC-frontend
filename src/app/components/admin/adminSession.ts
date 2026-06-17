@@ -5,6 +5,7 @@ export type AdminSession = {
   region: string;
   role: AdminRole;
   accessToken: string;
+  sessionTimeoutMinutes?: number;
 };
 
 const ADMIN_SESSION_STORAGE_KEY = "jhc_admin_session";
@@ -33,12 +34,14 @@ export function createAdminSession({
   accessToken,
   name,
   region,
+  sessionTimeoutMinutes,
 }: {
   role: AdminRole;
   email: string;
   accessToken: string;
   name?: string | null;
   region?: string | null;
+  sessionTimeoutMinutes?: number | null;
 }): AdminSession {
   return {
     name: name?.trim() || email.trim(),
@@ -46,6 +49,9 @@ export function createAdminSession({
     region: region?.trim() || DEFAULT_ADMIN_REGION,
     role,
     accessToken,
+    sessionTimeoutMinutes: typeof sessionTimeoutMinutes === "number" && Number.isFinite(sessionTimeoutMinutes)
+      ? sessionTimeoutMinutes
+      : undefined,
   };
 }
 
@@ -74,10 +80,31 @@ export function setAdminSession(session: AdminSession) {
   window.localStorage.setItem(ADMIN_SESSION_STORAGE_KEY, JSON.stringify(session));
 }
 
+export function updateAdminSession(partial: Partial<AdminSession>) {
+  const current = getAdminSession();
+  if (!current) return;
+  setAdminSession({
+    ...current,
+    ...partial,
+  });
+}
+
 export function clearAdminSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
   window.sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+}
+
+export function redirectToAdminLogin() {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname !== "/admin/login") {
+    window.location.assign("/admin/login");
+  }
+}
+
+export function clearAdminSessionAndRedirect() {
+  clearAdminSession();
+  redirectToAdminLogin();
 }
 
 export function getAdminAccessToken() {

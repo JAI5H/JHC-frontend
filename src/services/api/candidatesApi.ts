@@ -41,6 +41,8 @@ export type CandidateStats = {
   rejectedCandidates: number;
 };
 
+export type CandidateStatus = "New" | "Reviewed" | "Shortlisted" | "Interview" | "Hired" | "Rejected";
+
 function normalizeCandidate(item: unknown, index: number): CandidateRecord {
   const record = getObjectCandidate(item);
 
@@ -121,6 +123,10 @@ export async function downloadCandidateCv(candidateId: number) {
   return apiClient.get(`/api/candidates/${candidateId}/cv`, {
     responseType: "blob",
   });
+}
+
+export async function updateCandidateStatus(candidateId: number, status: CandidateStatus) {
+  return apiClient.put(`/api/candidates/${candidateId}/status`, { status });
 }
 
 export function deriveCandidateStatsFromList(items: CandidateRecord[], totalCount: number): CandidateStats {
