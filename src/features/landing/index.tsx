@@ -572,6 +572,28 @@ function getMetricCountParts(value: string) {
   };
 }
 
+function getArabicMobileMetricValue(value: string) {
+  if (value === "15+") return "أكثر من 15";
+  if (value === "500+") return "+500";
+  if (value === "98%" || value === "Up to 98%") return "حتى 98%";
+  return value;
+}
+
+function getArabicMarqueePhrases(items: string[]) {
+  const phrases: string[] = [];
+
+  for (let index = 0; index < items.length; index += 2) {
+    const bullet = items[index];
+    const phrase = items[index + 1];
+
+    if ((bullet === "●" || bullet === "•") && phrase) {
+      phrases.push(phrase);
+    }
+  }
+
+  return phrases;
+}
+
 export default function JhcLandingPage() {
   const { landing } = useTranslation();
   const { language, setLanguage } = useLanguage();
@@ -811,9 +833,18 @@ export default function JhcLandingPage() {
   const servicesCopy = landing.servicesSection;
   const processCopy = landing.processSection;
   const arabicContactFontStyle = isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined;
+  const arabicMarqueePhrases = isArabic ? getArabicMarqueePhrases(marqueeItems) : [];
+  const arabicMarqueeLoopPhrases = isArabic
+    ? [
+        ...arabicMarqueePhrases,
+        ...arabicMarqueePhrases,
+        ...arabicMarqueePhrases,
+        ...arabicMarqueePhrases,
+      ]
+    : [];
 
   return (
-    <div className="w-full max-w-none min-w-0 overflow-x-hidden bg-[#f8fafc] font-sora text-[#0b1f4d] md:min-w-[1440px]">
+    <div className="w-full max-w-none min-w-0 overflow-x-hidden bg-[#f8fafc] font-sora text-[#0b1f4d]">
       <style>{`
         @keyframes hero-logo-pulse {
           0%, 100% {
@@ -835,14 +866,28 @@ export default function JhcLandingPage() {
             transform: translateX(-50%);
           }
         }
+        @keyframes marquee-arabic {
+          0% {
+            transform: translateX(-50%);
+          }
+          100% {
+            transform: translateX(0%);
+          }
+        }
         .animate-marquee {
           animation: marquee 25s linear infinite;
         }
         .animate-marquee-ticker {
           animation: marquee 14s linear infinite;
         }
+        .animate-marquee-ticker-arabic {
+          animation: marquee-arabic 14s linear infinite;
+        }
         @media (min-width: 768px) {
           .animate-marquee-ticker {
+            animation-duration: 17s;
+          }
+          .animate-marquee-ticker-arabic {
             animation-duration: 17s;
           }
         }
@@ -886,12 +931,13 @@ export default function JhcLandingPage() {
 
         <div className="fixed left-1/2 top-6 z-50 w-[calc(100%-24px)] max-w-[1280px] -translate-x-1/2 md:w-[1280px]">
           <div
-            className="relative flex h-[72px] items-center rounded-[23px] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-200 md:h-[84px] md:px-[30px]"
+            className="relative flex h-[72px] items-center justify-between rounded-[23px] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-200 md:h-[84px] md:px-[30px]"
+            dir={isArabic ? "ltr" : undefined}
             style={mobileNavSurfaceStyle}
           >
             <img
               alt="JHC"
-              className={["h-[34px] w-auto md:h-[42px]", isArabic ? "md:absolute md:right-[30px]" : ""].join(" ")}
+              className={["h-[34px] w-auto md:h-[42px]", isArabic ? "order-2 md:absolute md:right-[30px]" : "order-1"].join(" ")}
               src={logo}
             />
             <nav
@@ -967,7 +1013,7 @@ export default function JhcLandingPage() {
               aria-controls="mobile-nav-menu"
               aria-expanded={mobileMenuOpen}
               aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
-              className="ml-auto inline-flex size-11 items-center justify-center rounded-[14px] border border-white/15 bg-white/[0.05] text-white transition-colors duration-200 md:hidden"
+              className={["inline-flex size-11 items-center justify-center rounded-[14px] border border-white/15 bg-white/[0.05] text-white transition-colors duration-200 md:hidden", isArabic ? "order-1" : "order-2 ml-auto"].join(" ")}
               onClick={() => setMobileMenuOpen((open) => !open)}
               type="button"
             >
@@ -1036,10 +1082,24 @@ export default function JhcLandingPage() {
 
         <div className="relative z-10 w-full max-w-none px-4 md:hidden">
           <div className="w-full max-w-none py-2 text-center">
-            <h1 className="mx-auto max-w-[320px] text-[34px] font-extrabold leading-[41px] tracking-[-1.1px] text-white">
+            <h1
+              className={[
+                "mx-auto text-[34px] font-extrabold leading-[41px] tracking-[-1.1px] text-white",
+                isArabic ? "max-w-[352px]" : "max-w-[320px]",
+              ].join(" ")}
+            >
               {isArabic ? (
-                <span style={{ ...heroArabicFontStyle, fontSize: "37px", lineHeight: "48px", letterSpacing: "-0.7px" }}>
-                  {heroCopy.main.title}
+                <span
+                  style={{
+                    ...heroArabicFontStyle,
+                    fontSize: "37px",
+                    lineHeight: "48px",
+                    letterSpacing: "-0.7px",
+                    textWrap: "balance",
+                  }}
+                >
+                  <span className="text-white">نماذج تشغيل استراتيجية</span>{" "}
+                  <span className="text-[#3b82f6] whitespace-nowrap">تقود نموًا حقيقيًا.</span>
                 </span>
               ) : (
                 <>
@@ -1061,9 +1121,10 @@ export default function JhcLandingPage() {
               </Link>
             </div>
 
-            <div className="mt-8 grid grid-cols-2 gap-3 text-left">
+            <div className={["mt-8 grid grid-cols-2 gap-3", isArabic ? "text-right" : "text-left"].join(" ")}>
               {metrics.map(({ value, label, icon: Icon }, index) => {
-                const metricCount = getMetricCountParts(value);
+                const metricDisplayValue = isArabic ? getArabicMobileMetricValue(value) : value;
+                const metricCount = getMetricCountParts(metricDisplayValue);
 
                 return (
                   <div
@@ -1076,12 +1137,16 @@ export default function JhcLandingPage() {
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-[#2563eb]/80 bg-[#112246] text-[#60a5fa]">
                       <Icon size={16} strokeWidth={1.85} />
                     </div>
-                    <div className={index === metrics.length - 1 ? "min-w-0" : ""}>
+                    <div
+                      className={[index === metrics.length - 1 ? "min-w-0" : "", isArabic ? "text-right" : ""].join(" ")}
+                      dir={isArabic ? "rtl" : "ltr"}
+                    >
                       <p
                         className={[
                           "whitespace-nowrap text-[26px] font-extrabold leading-[26px] tracking-[-0.5px] text-white",
                           index === metrics.length - 1 ? "" : "mt-3",
                         ].join(" ")}
+                        style={isArabic ? { ...heroArabicFontStyle, direction: "rtl", unicodeBidi: "plaintext" } : undefined}
                       >
                         <CountUp
                           className="inline-block"
@@ -1094,7 +1159,12 @@ export default function JhcLandingPage() {
                           to={metricCount.to}
                         />
                       </p>
-                      <p className="mt-[6px] text-[13px] leading-[20px] text-[#c0c8d8]">{label}</p>
+                      <p
+                        className="mt-[6px] text-[13px] leading-[20px] text-[#c0c8d8]"
+                        style={isArabic ? { ...heroArabicFontStyle, direction: "rtl", unicodeBidi: "plaintext" } : undefined}
+                      >
+                        {label}
+                      </p>
                     </div>
                   </div>
                 );
@@ -1239,7 +1309,7 @@ export default function JhcLandingPage() {
                     <Icon size={16} strokeWidth={1.85} />
                   </div>
                   <div className="min-w-0 max-w-[165px]">
-                    <p className="whitespace-nowrap text-[28px] font-extrabold leading-[28px] tracking-[-0.6px] text-white">
+                    <p className="whitespace-nowrap text-[28px] font-extrabold leading-[28px] tracking-[-0.6px] text-white" style={isArabic ? heroArabicFontStyle : undefined}>
                       <CountUp
                         className="inline-block"
                         delay={0}
@@ -1464,11 +1534,14 @@ export default function JhcLandingPage() {
                     index > 0 ? "border-t border-[#e2e8f0]" : "",
                   ].join(" ")}
                 >
-                  <div className={["flex items-center gap-4", isArabic ? "flex-row-reverse" : ""].join(" ")}>
+                  <div
+                    className={["flex items-center gap-4", isArabic ? "text-right" : ""].join(" ")}
+                    dir={isArabic ? "rtl" : "ltr"}
+                  >
                     <div className="flex size-[44px] shrink-0 items-center justify-center rounded-full border border-[#dbeafe] bg-[#eff6ff] text-[#2563eb]">
                       <Icon size={20} strokeWidth={1.8} />
                     </div>
-                    <h3 className="text-[18px] font-bold leading-[22px] text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
+                    <h3 className={isArabic ? "text-right text-[18px] font-bold leading-[22px] text-[#0b1f4d]" : "text-[18px] font-bold leading-[22px] text-[#0b1f4d]"} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
                   </div>
                   <p className={["mt-4 text-[14px] leading-[23px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
                   <ul className={["mt-5 space-y-3 text-[14px] leading-5 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
@@ -1659,39 +1732,73 @@ export default function JhcLandingPage() {
 
         <div className="relative mx-4 mt-20 w-auto overflow-hidden rounded-[16px] border border-[#e2e8f0] bg-white py-6 md:mx-auto md:w-[1280px]">
           {/* Left and Right Gradient Fades */}
-          <div className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 hidden w-24 bg-gradient-to-r from-white via-white/94 to-transparent md:block" />
-          <div className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 hidden w-24 bg-gradient-to-l from-white via-white/94 to-transparent md:block" />
+          {!isArabic ? <div className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 hidden w-24 bg-gradient-to-r from-white via-white/94 to-transparent md:block" /> : null}
+          {!isArabic ? <div className="pointer-events-none absolute bottom-0 right-0 top-0 z-10 hidden w-24 bg-gradient-to-l from-white via-white/94 to-transparent md:block" /> : null}
 
-          <div className="animate-marquee-ticker inline-flex w-max min-w-max items-center [mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)] [will-change:transform]">
-            <div className="flex shrink-0 items-center gap-4 pr-4 md:gap-12 md:pr-12">
-              {marqueeItems.map((item, i) => (
-                <span
-                  key={i}
-                  className={[
-                    item === "•"
-                      ? "text-[#2563eb]/40 text-[14px]"
-                      : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
-                    "whitespace-nowrap select-none",
-                  ].join(" ")}
-                >
-                  {item}
-                </span>
-              ))}
+          <div
+            className={[
+              "inline-flex w-max min-w-max items-center [will-change:transform]",
+              !isArabic ? "[mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_10%,black_90%,transparent)]" : "",
+              isArabic ? "animate-marquee-ticker-arabic" : "animate-marquee-ticker",
+            ].join(" ")}
+            dir="ltr"
+          >
+            <div
+              className={[
+                "flex shrink-0 items-center",
+                isArabic ? "gap-8 md:gap-10" : "gap-4 pr-4 md:gap-12 md:pr-12",
+              ].join(" ")}
+              dir={isArabic ? "rtl" : "ltr"}
+            >
+              {isArabic
+                ? arabicMarqueeLoopPhrases.map((phrase, i) => (
+                    <span key={i} className="inline-flex items-center gap-4 whitespace-nowrap select-none" style={heroArabicFontStyle}>
+                      <span className="text-[14px] text-[#2563eb]/40">●</span>
+                      <span className="text-[11px] font-semibold text-[#64748b]">{phrase}</span>
+                    </span>
+                  ))
+                : marqueeItems.map((item, i) => (
+                    <span
+                      key={i}
+                      className={[
+                        item === "•" || item === "●"
+                          ? "text-[#2563eb]/40 text-[14px]"
+                          : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
+                        "whitespace-nowrap select-none",
+                      ].join(" ")}
+                    >
+                      {item}
+                    </span>
+                  ))}
             </div>
-            <div aria-hidden="true" className="flex shrink-0 items-center gap-4 pr-4 md:gap-12 md:pr-12">
-              {marqueeItems.map((item, i) => (
-                <span
-                  key={`clone-${i}`}
-                  className={[
-                    item === "•"
-                      ? "text-[#2563eb]/40 text-[14px]"
-                      : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
-                    "whitespace-nowrap select-none",
-                  ].join(" ")}
-                >
-                  {item}
-                </span>
-              ))}
+            <div
+              aria-hidden="true"
+              className={[
+                "flex shrink-0 items-center",
+                isArabic ? "gap-8 md:gap-10" : "gap-4 pr-4 md:gap-12 md:pr-12",
+              ].join(" ")}
+              dir={isArabic ? "rtl" : "ltr"}
+            >
+              {isArabic
+                ? arabicMarqueeLoopPhrases.map((phrase, i) => (
+                    <span key={`clone-${i}`} className="inline-flex items-center gap-4 whitespace-nowrap select-none" style={heroArabicFontStyle}>
+                      <span className="text-[14px] text-[#2563eb]/40">●</span>
+                      <span className="text-[11px] font-semibold text-[#64748b]">{phrase}</span>
+                    </span>
+                  ))
+                : marqueeItems.map((item, i) => (
+                    <span
+                      key={`clone-${i}`}
+                      className={[
+                        item === "•" || item === "●"
+                          ? "text-[#2563eb]/40 text-[14px]"
+                          : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
+                        "whitespace-nowrap select-none",
+                      ].join(" ")}
+                    >
+                      {item}
+                    </span>
+                  ))}
             </div>
           </div>
         </div>
@@ -2428,7 +2535,7 @@ export default function JhcLandingPage() {
               <p className="text-center" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{FOOTER_COPY.copyright}</p>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
                 {FOOTER_POLICY_LINKS.map((label) => (
-                  <a key={label} href="#" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
+                  <a key={label} href={label === "Terms of Use" ? "/terms-of-use" : label === "Privacy Policy" ? "/privacy-policy" : "/cookie-policy"} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
                 ))}
               </div>
             </div>
@@ -2525,7 +2632,7 @@ export default function JhcLandingPage() {
             <p style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{FOOTER_COPY.copyright}</p>
             <div className="flex gap-6">
               {FOOTER_POLICY_LINKS.map((label) => (
-                <a key={label} href="#" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
+                <a key={label} href={label === "Terms of Use" ? "/terms-of-use" : label === "Privacy Policy" ? "/privacy-policy" : "/cookie-policy"} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
               ))}
             </div>
           </div>

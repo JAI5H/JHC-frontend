@@ -1,41 +1,57 @@
 import { useState } from "react";
 import {
-  Save,
-  User,
-  Settings2,
+  AlertCircle,
   ChevronDown,
   Eye,
   EyeOff,
+  Save,
+  Settings2,
   ShieldCheck,
-  AlertCircle,
+  User,
   UserPlus,
 } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
-import { getAdminSession, isSuperAdmin } from "../components/admin/adminSession";
+import { getAdminSession, isSuperAdmin, setAdminSession } from "../components/admin/adminSession";
+import { changeAdminEmail, changeAdminPassword, addAdministrator } from "../../services/api/settingsApi";
+import { getAxiosErrorMessage } from "../../services/api/utils";
 
 type Tab = "profile" | "system";
 
 const TABS: { key: Tab; icon: React.ReactNode; label: string }[] = [
-  { key: "profile", icon: <User size={15} />,     label: "Profile Settings"              },
-  { key: "system",  icon: <Settings2 size={15} />, label: "System Configurations"        },
+  { key: "profile", icon: <User size={15} />, label: "Profile Settings" },
+  { key: "system", icon: <Settings2 size={15} />, label: "System Configurations" },
 ];
 
 const REGIONS = ["All Regions", "GCC & Egypt Hubs", "Saudi Arabia Hub", "Egypt Hub", "UAE Hub", "Qatar Hub", "Kuwait Hub"];
 
 const inputSt: React.CSSProperties = {
-  width: "100%", padding: "10px 14px", borderRadius: "10px",
-  border: "1px solid #E2E8F0", background: "#F8FAFC",
-  fontSize: "0.875rem", color: "#0F172A", outline: "none",
-  fontFamily: "'Sora', system-ui, sans-serif", transition: "border-color 0.15s",
+  width: "100%",
+  padding: "10px 14px",
+  borderRadius: "10px",
+  border: "1px solid #E2E8F0",
+  background: "#F8FAFC",
+  fontSize: "0.875rem",
+  color: "#0F172A",
+  outline: "none",
+  fontFamily: "'Sora', system-ui, sans-serif",
+  transition: "border-color 0.15s",
 };
 
 const disabledSt: React.CSSProperties = {
-  ...inputSt, background: "#F1F5F9", color: "#94A3B8", cursor: "not-allowed",
+  ...inputSt,
+  background: "#F1F5F9",
+  color: "#94A3B8",
+  cursor: "not-allowed",
 };
 
 const labelSt: React.CSSProperties = {
-  display: "block", fontSize: "0.75rem", fontWeight: 700, color: "#64748B",
-  marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.07em",
+  display: "block",
+  fontSize: "0.75rem",
+  fontWeight: 700,
+  color: "#64748B",
+  marginBottom: "6px",
+  textTransform: "uppercase",
+  letterSpacing: "0.07em",
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -103,10 +119,30 @@ function StrengthBar({ password }: { password: string }) {
   );
 }
 
+function FeedbackBanner({ error, success }: { error: string; success: string }) {
+  if (!error && !success) return null;
+
+  const isError = Boolean(error);
+
+  return (
+    <div
+      className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm"
+      style={{
+        background: isError ? "#FEF2F2" : "#F0FDF4",
+        border: isError ? "1px solid #FCA5A5" : "1px solid #BBF7D0",
+        color: isError ? "#DC2626" : "#15803D",
+      }}
+    >
+      <AlertCircle size={14} style={{ flexShrink: 0 }} />
+      {error || success}
+    </div>
+  );
+}
+
 function ProfileTab() {
   const session = getAdminSession();
   const superAdmin = session ? isSuperAdmin(session.role) : false;
-  const [form, setForm] = useState({ name: "JHC Admin", email: "admin@jhc-group.com", region: "GCC & Egypt Hubs" });
+  const [form, setForm] = useState({ name: session?.name ?? "JHC Admin", email: session?.email ?? "admin@jhc-group.com", region: session?.region ?? "GCC & Egypt Hubs" });
   const [emailForm, setEmailForm] = useState({ currentPassword: "", newEmail: "" });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [adminForm, setAdminForm] = useState({
@@ -116,447 +152,343 @@ function ProfileTab() {
     confirmPassword: "",
     currentPassword: "",
   });
-  const [accountError, setAccountError] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [accountSaved, setAccountSaved] = useState<"" | "email" | "password" | "admin">("");
+  const [profileError, setProfileError] = useState("");
+  const [profileSuccess, setProfileSuccess] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [emailSuccess, setEmailSuccess] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [adminSuccess, setAdminSuccess] = useState("");
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [adminLoading, setAdminLoading] = useState(false);
 
-  const save = () => { setSaved(true); setTimeout(() => setSaved(false), 2200); };
-  const saveAccountSection = (section: "email" | "password" | "admin") => {
-    let error = "";
+  const handleUnsupportedPreferencesSave = () => {
+    setProfileSuccess("");
+    setProfileError("No backend endpoint exists for saving profile preferences yet.");
+  };
 
-    if (section === "email") {
-      if (!emailForm.currentPassword) error = "Current password is required.";
-      else if (!emailForm.newEmail || !emailForm.newEmail.includes("@")) error = "Enter a valid email address.";
-    }
+  const handleSaveEmail = async () => {
+    setEmailError("");
+    setEmailSuccess("");
 
-    if (section === "password") {
-      if (!passwordForm.currentPassword) error = "Current password is required.";
-      else if (passwordForm.newPassword.length < 8) error = "New password must be at least 8 characters.";
-      else if (passwordForm.newPassword !== passwordForm.confirmPassword) error = "Passwords do not match.";
-    }
-
-    if (section === "admin") {
-      if (!adminForm.fullName.trim()) error = "Administrator full name is required.";
-      else if (!adminForm.adminEmail || !adminForm.adminEmail.includes("@")) error = "Enter a valid email for the new admin.";
-      else if (adminForm.newPassword.length < 8) error = "New admin password must be at least 8 characters.";
-      else if (adminForm.newPassword !== adminForm.confirmPassword) error = "Passwords do not match.";
-      else if (!adminForm.currentPassword) error = "Your current password is required to authorize this action.";
-    }
-
-    if (error) {
-      setAccountSaved("");
-      setAccountError(error);
+    if (!emailForm.currentPassword) {
+      setEmailError("Current password is required.");
       return;
     }
 
-    setAccountError("");
-    setAccountSaved(section);
-    setTimeout(() => setAccountSaved(""), 2200);
+    if (!emailForm.newEmail || !emailForm.newEmail.includes("@")) {
+      setEmailError("Enter a valid email address.");
+      return;
+    }
+
+    setEmailLoading(true);
+
+    try {
+      await changeAdminEmail({
+        currentPassword: emailForm.currentPassword,
+        newEmail: emailForm.newEmail,
+      });
+
+      if (session) {
+        setAdminSession({ ...session, email: emailForm.newEmail });
+      }
+
+      setForm((current) => ({ ...current, email: emailForm.newEmail }));
+      setEmailForm({ currentPassword: "", newEmail: "" });
+      setEmailSuccess("Email address updated successfully.");
+    } catch (requestError) {
+      setEmailError(getAxiosErrorMessage(requestError, "Unable to update email right now."));
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const handleSavePassword = async () => {
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    if (!passwordForm.currentPassword) {
+      setPasswordError("Current password is required.");
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters.");
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError("Passwords do not match.");
+      return;
+    }
+
+    setPasswordLoading(true);
+
+    try {
+      await changeAdminPassword({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setPasswordSuccess("Password changed successfully.");
+    } catch (requestError) {
+      setPasswordError(getAxiosErrorMessage(requestError, "Unable to change password right now."));
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  const handleCreateAdmin = async () => {
+    setAdminError("");
+    setAdminSuccess("");
+
+    if (!adminForm.fullName.trim()) {
+      setAdminError("Administrator full name is required.");
+      return;
+    }
+
+    if (!adminForm.adminEmail || !adminForm.adminEmail.includes("@")) {
+      setAdminError("Enter a valid email for the new admin.");
+      return;
+    }
+
+    if (adminForm.newPassword.length < 8) {
+      setAdminError("New admin password must be at least 8 characters.");
+      return;
+    }
+
+    if (adminForm.newPassword !== adminForm.confirmPassword) {
+      setAdminError("Passwords do not match.");
+      return;
+    }
+
+    if (!adminForm.currentPassword) {
+      setAdminError("Your current password is required to authorize this action.");
+      return;
+    }
+
+    setAdminLoading(true);
+
+    try {
+      await addAdministrator({
+        fullName: adminForm.fullName.trim(),
+        email: adminForm.adminEmail.trim(),
+        password: adminForm.newPassword,
+      });
+
+      setAdminForm({
+        fullName: "",
+        adminEmail: "",
+        newPassword: "",
+        confirmPassword: "",
+        currentPassword: "",
+      });
+      setAdminSuccess("Standard Administrator account created successfully.");
+    } catch (requestError) {
+      setAdminError(getAxiosErrorMessage(requestError, "Unable to create the administrator account right now."));
+    } finally {
+      setAdminLoading(false);
+    }
   };
 
   return (
     <div className="flex flex-col gap-8">
       <div>
         <h3 className="font-bold" style={{ fontSize: "1rem", color: "#0B1F4D" }}>Profile Settings</h3>
-        <p className="text-sm mt-1" style={{ color: "#64748B" }}>Manage your admin account information and regional target.</p>
+        <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Manage your admin account information and regional target.</p>
       </div>
 
-      {/* Avatar row */}
-      <div className="flex items-center gap-5 p-5 rounded-xl" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-base font-bold flex-shrink-0" style={{ background: "#1D4ED8", color: "#60A5FA" }}>JA</div>
+      <div className="flex items-center gap-5 rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+        <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl text-base font-bold" style={{ background: "#1D4ED8", color: "#60A5FA" }}>JA</div>
         <div>
           <div className="font-semibold" style={{ color: "#0B1F4D" }}>{session?.name ?? "JHC Admin"}</div>
-          <div className="text-xs mt-0.5" style={{ color: "#64748B" }}>
+          <div className="mt-0.5 text-xs" style={{ color: "#64748B" }}>
             {superAdmin ? "Super Administrator" : "Standard Administrator"} · {session?.region ?? "GCC & Egypt Hubs"}
           </div>
         </div>
-        <button className="ml-auto text-xs font-semibold px-4 py-2 rounded-lg border transition-colors" style={{ borderColor: "#E2E8F0", color: "#64748B" }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#0B1F4D"; (e.currentTarget as HTMLElement).style.color = "#0B1F4D"; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#E2E8F0"; (e.currentTarget as HTMLElement).style.color = "#64748B"; }}>
+        <button className="ml-auto rounded-lg border px-4 py-2 text-xs font-semibold transition-colors" style={{ borderColor: "#E2E8F0", color: "#64748B" }}>
           Change Avatar
         </button>
       </div>
 
-      {/* Form */}
-      <div className="grid sm:grid-cols-2 gap-5">
+      <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label style={labelSt}>Admin Full Name</label>
-          <input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-            style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
+          <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
         </div>
         <div>
           <label style={labelSt}>Official Contact Email</label>
-          <input value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-            style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
+          <input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
         </div>
         <div>
           <label style={labelSt}>System Role Access Level</label>
           <input value={superAdmin ? "Super Administrator" : "Standard Administrator"} disabled style={disabledSt} />
-          <p className="text-xs mt-1.5" style={{ color: "#94A3B8" }}>Role is set by the system. Contact support to modify.</p>
-        </div>
-        <div>
-          <label style={labelSt}>Primary Region Target</label>
-          <div className="relative">
-            <select value={form.region} onChange={(e) => setForm((p) => ({ ...p, region: e.target.value }))}
-              style={{ ...inputSt, cursor: "pointer", appearance: "none" }}
-              onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")}>
-              {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#94A3B8" }} />
-          </div>
+          <p className="mt-1.5 text-xs" style={{ color: "#94A3B8" }}>Role is set by the system. Contact support to modify.</p>
         </div>
       </div>
 
-      {/* Action footer */}
-      <div className="pt-4 border-t flex items-center justify-between gap-4" style={{ borderColor: "#E2E8F0" }}>
-        {saved && (
-          <span className="text-sm font-medium" style={{ color: "#16A34A" }}>✓ Preferences saved successfully</span>
-        )}
-        {!saved && <span />}
-        <button onClick={save}
-          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
+      <FeedbackBanner error={profileError} success={profileSuccess} />
+
+      <div className="flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
+        <span className="text-sm" style={{ color: "#94A3B8" }}>Profile preferences remain read-only until a matching backend endpoint is available.</span>
+        <button
+          onClick={handleUnsupportedPreferencesSave}
+          className="inline-flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-white transition-colors"
           style={{ background: "#1D4ED8" }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}>
+        >
           <Save size={14} /> Save Preferences
         </button>
       </div>
 
-      {accountError && (
-        <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#DC2626" }}>
-          <AlertCircle size={14} style={{ flexShrink: 0 }} />
-          {accountError}
+      <div className="border-t pt-8" style={{ borderColor: "#E2E8F0" }}>
+        <div>
+          <h3 className="font-bold" style={{ fontSize: "1rem", color: "#0B1F4D" }}>Account Configuration</h3>
+          <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Manage account-level security and access directly from this page.</p>
         </div>
-      )}
+      </div>
 
-      {superAdmin && (
-        <>
-          <div className="border-t pt-8" style={{ borderColor: "#E2E8F0" }}>
-            <div>
-              <h3 className="font-bold" style={{ fontSize: "1rem", color: "#0B1F4D" }}>Account Configuration</h3>
-              <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Manage account-level security and access directly from this page.</p>
-            </div>
+      <div className="flex flex-col gap-6">
+        <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+          <div className="mb-5">
+            <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Change Email</h4>
+            <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Update the official admin inbox used for access and notifications.</p>
           </div>
+          <FeedbackBanner error={emailError} success={emailSuccess} />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Current Password">
+              <PasswordInput value={emailForm.currentPassword} onChange={(value) => setEmailForm((current) => ({ ...current, currentPassword: value }))} placeholder="Enter current password to verify" />
+            </Field>
+            <Field label="New Email Address">
+              <input type="email" value={emailForm.newEmail} onChange={(event) => setEmailForm((current) => ({ ...current, newEmail: event.target.value }))} placeholder="Enter the new admin email" style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
+            </Field>
+          </div>
+          <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
+            <span className="text-xs" style={{ color: "#94A3B8" }}>A verification link will be sent before the change takes effect.</span>
+            <button onClick={() => void handleSaveEmail()} disabled={emailLoading} className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors" style={{ background: emailLoading ? "#94A3B8" : "#1D4ED8", cursor: emailLoading ? "not-allowed" : "pointer" }}>
+              <Save size={14} /> {emailLoading ? "Saving..." : "Save Email"}
+            </button>
+          </div>
+        </div>
 
-          <div className="flex flex-col gap-6">
-            <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-              <div className="mb-5">
-                <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Change Email</h4>
-                <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Update the official admin inbox used for access and notifications.</p>
-              </div>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Current Password">
-                  <PasswordInput value={emailForm.currentPassword} onChange={(value) => setEmailForm((prev) => ({ ...prev, currentPassword: value }))} placeholder="Enter current password to verify" />
+        <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+          <div className="mb-5">
+            <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Change Password</h4>
+            <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Strengthen account security with a new password.</p>
+          </div>
+          <FeedbackBanner error={passwordError} success={passwordSuccess} />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field label="Current Password">
+              <PasswordInput value={passwordForm.currentPassword} onChange={(value) => setPasswordForm((current) => ({ ...current, currentPassword: value }))} placeholder="Enter your current password" />
+            </Field>
+            <div className="grid gap-5 sm:col-span-2 sm:grid-cols-2">
+              <div>
+                <Field label="New Password">
+                  <PasswordInput value={passwordForm.newPassword} onChange={(value) => setPasswordForm((current) => ({ ...current, newPassword: value }))} placeholder="Min. 8 characters" />
                 </Field>
-                <Field label="New Email Address">
-                  <input
-                    type="email"
-                    value={emailForm.newEmail}
-                    onChange={(event) => setEmailForm((prev) => ({ ...prev, newEmail: event.target.value }))}
-                    placeholder="Enter the new admin email"
-                    style={inputSt}
-                    onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")}
-                    onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")}
-                  />
-                </Field>
-              </div>
-              <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
-                <span className="text-xs" style={{ color: accountSaved === "email" ? "#16A34A" : "#94A3B8" }}>
-                  {accountSaved === "email" ? "✓ Email address updated successfully" : "A verification link will be sent before the change takes effect."}
-                </span>
-                <button
-                  onClick={() => saveAccountSection("email")}
-                  className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors"
-                  style={{ background: "#1D4ED8" }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}
-                >
-                  <Save size={14} /> Save Email
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-              <div className="mb-5">
-                <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Change Password</h4>
-                <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Strengthen account security with a new password.</p>
-              </div>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Current Password">
-                  <PasswordInput value={passwordForm.currentPassword} onChange={(value) => setPasswordForm((prev) => ({ ...prev, currentPassword: value }))} placeholder="Enter your current password" />
-                </Field>
-                <div className="sm:col-span-2 grid gap-5 sm:grid-cols-2">
-                  <div>
-                    <Field label="New Password">
-                      <PasswordInput value={passwordForm.newPassword} onChange={(value) => setPasswordForm((prev) => ({ ...prev, newPassword: value }))} placeholder="Min. 8 characters" />
-                    </Field>
-                    <div className="mt-3">
-                      <StrengthBar password={passwordForm.newPassword} />
-                    </div>
-                  </div>
-                  <Field label="Confirm New Password">
-                    <PasswordInput value={passwordForm.confirmPassword} onChange={(value) => setPasswordForm((prev) => ({ ...prev, confirmPassword: value }))} placeholder="Re-enter new password" />
-                  </Field>
+                <div className="mt-3">
+                  <StrengthBar password={passwordForm.newPassword} />
                 </div>
               </div>
-              <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
-                <span className="text-xs" style={{ color: accountSaved === "password" ? "#16A34A" : "#94A3B8" }}>
-                  {accountSaved === "password" ? "✓ Password changed successfully" : "Use a strong password with letters, numbers, and symbols."}
-                </span>
-                <button
-                  onClick={() => saveAccountSection("password")}
-                  className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors"
-                  style={{ background: "#1D4ED8" }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}
-                >
-                  <Save size={14} /> Save Password
-                </button>
-              </div>
+              <Field label="Confirm New Password">
+                <PasswordInput value={passwordForm.confirmPassword} onChange={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))} placeholder="Re-enter new password" />
+              </Field>
             </div>
+          </div>
+          <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
+            <span className="text-xs" style={{ color: "#94A3B8" }}>Use a strong password with letters, numbers, and symbols.</span>
+            <button onClick={() => void handleSavePassword()} disabled={passwordLoading} className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors" style={{ background: passwordLoading ? "#94A3B8" : "#1D4ED8", cursor: passwordLoading ? "not-allowed" : "pointer" }}>
+              <Save size={14} /> {passwordLoading ? "Saving..." : "Save Password"}
+            </button>
+          </div>
+        </div>
 
-            <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-              <div className="mb-5">
-                <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Add New Administrator</h4>
-                <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Create a Standard Administrator account with global operational visibility.</p>
+        {superAdmin ? (
+          <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+            <div className="mb-5">
+              <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Add New Administrator</h4>
+              <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Create a Standard Administrator account with global operational visibility.</p>
+            </div>
+            <FeedbackBanner error={adminError} success={adminSuccess} />
+            <div className="mb-5 flex items-start gap-3 rounded-lg px-4 py-3" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
+              <ShieldCheck size={15} style={{ color: "#1D4ED8", flexShrink: 0, marginTop: "1px" }} />
+              <p className="text-xs leading-relaxed" style={{ color: "#1D4ED8" }}>
+                Every account created here is automatically assigned the Standard Administrator role. Access is limited by system permissions and currently includes global platform visibility.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field label="Administrator Full Name">
+                <input type="text" value={adminForm.fullName} onChange={(event) => setAdminForm((current) => ({ ...current, fullName: event.target.value }))} placeholder="Enter the administrator's full name" style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
+              </Field>
+              <Field label="Official Administrator Email">
+                <input type="email" value={adminForm.adminEmail} onChange={(event) => setAdminForm((current) => ({ ...current, adminEmail: event.target.value }))} placeholder="Enter the administrator email" style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
+              </Field>
+              <div>
+                <Field label="Initial Password">
+                  <PasswordInput value={adminForm.newPassword} onChange={(value) => setAdminForm((current) => ({ ...current, newPassword: value }))} placeholder="Min. 8 characters" />
+                </Field>
+                <div className="mt-3">
+                  <StrengthBar password={adminForm.newPassword} />
+                </div>
               </div>
-              <div className="mb-5 flex items-start gap-3 rounded-lg px-4 py-3" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
-                <ShieldCheck size={15} style={{ color: "#1D4ED8", flexShrink: 0, marginTop: "1px" }} />
-                <p className="text-xs leading-relaxed" style={{ color: "#1D4ED8" }}>
-                  Every account created here is automatically assigned the Standard Administrator role. Access is limited by system permissions and currently includes global platform visibility.
+              <Field label="Confirm Password">
+                <PasswordInput value={adminForm.confirmPassword} onChange={(value) => setAdminForm((current) => ({ ...current, confirmPassword: value }))} placeholder="Re-enter password" />
+              </Field>
+              <div className="sm:col-span-2">
+                <p className="mb-5 text-sm" style={{ color: "#64748B" }}>
+                  Administrator accounts are created with restricted operational access.
                 </p>
-              </div>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Administrator Full Name">
-                  <input
-                    type="text"
-                    value={adminForm.fullName}
-                    onChange={(event) => setAdminForm((prev) => ({ ...prev, fullName: event.target.value }))}
-                    placeholder="Enter the administrator's full name"
-                    style={inputSt}
-                    onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")}
-                    onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")}
-                  />
-                </Field>
-                <Field label="Official Administrator Email">
-                  <input
-                    type="email"
-                    value={adminForm.adminEmail}
-                    onChange={(event) => setAdminForm((prev) => ({ ...prev, adminEmail: event.target.value }))}
-                    placeholder="Enter the administrator email"
-                    style={inputSt}
-                    onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")}
-                    onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")}
-                  />
-                </Field>
-                <div>
-                  <Field label="Initial Password">
-                    <PasswordInput value={adminForm.newPassword} onChange={(value) => setAdminForm((prev) => ({ ...prev, newPassword: value }))} placeholder="Min. 8 characters" />
-                  </Field>
-                  <div className="mt-3">
-                    <StrengthBar password={adminForm.newPassword} />
-                  </div>
-                </div>
-                <Field label="Confirm Password">
-                  <PasswordInput value={adminForm.confirmPassword} onChange={(value) => setAdminForm((prev) => ({ ...prev, confirmPassword: value }))} placeholder="Re-enter password" />
-                </Field>
-                <div className="sm:col-span-2">
-                  <p className="mb-5 text-sm" style={{ color: "#64748B" }}>
-                    Administrator accounts are created with restricted operational access.
-                  </p>
-                  <Field label="Your Current Password">
-                    <PasswordInput value={adminForm.currentPassword} onChange={(value) => setAdminForm((prev) => ({ ...prev, currentPassword: value }))} placeholder="Authorize this action" />
-                  </Field>
-                </div>
-              </div>
-              <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
-                <span className="text-xs" style={{ color: accountSaved === "admin" ? "#16A34A" : "#94A3B8" }}>
-                  {accountSaved === "admin" ? "✓ Standard Administrator account created successfully" : "Administrator creation requires your current password for security confirmation."}
-                </span>
-                <button
-                  onClick={() => saveAccountSection("admin")}
-                  className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors"
-                  style={{ background: "#1D4ED8" }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}
-                >
-                  <UserPlus size={14} /> Create Administrator Account
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {!superAdmin && (
-        <div className="flex flex-col gap-6">
-          <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-            <div className="mb-5">
-              <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Change Email</h4>
-              <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Update the official admin inbox used for access and notifications.</p>
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Current Password">
-                <PasswordInput value={emailForm.currentPassword} onChange={(value) => setEmailForm((prev) => ({ ...prev, currentPassword: value }))} placeholder="Enter current password to verify" />
-              </Field>
-              <Field label="New Email Address">
-                <input
-                  type="email"
-                  value={emailForm.newEmail}
-                  onChange={(event) => setEmailForm((prev) => ({ ...prev, newEmail: event.target.value }))}
-                  placeholder="Enter your new email"
-                  style={inputSt}
-                  onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")}
-                  onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")}
-                />
-              </Field>
-            </div>
-            <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
-              <span className="text-xs" style={{ color: accountSaved === "email" ? "#16A34A" : "#94A3B8" }}>
-                {accountSaved === "email" ? "✓ Email address updated successfully" : "A verification link will be sent before the change takes effect."}
-              </span>
-              <button
-                onClick={() => saveAccountSection("email")}
-                className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors"
-                style={{ background: "#1D4ED8" }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}
-              >
-                <Save size={14} /> Save Email
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-            <div className="mb-5">
-              <h4 className="font-semibold" style={{ color: "#0B1F4D" }}>Change Password</h4>
-              <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Strengthen account security with a new password.</p>
-            </div>
-            <div className="grid gap-5 sm:grid-cols-2">
-              <Field label="Current Password">
-                <PasswordInput value={passwordForm.currentPassword} onChange={(value) => setPasswordForm((prev) => ({ ...prev, currentPassword: value }))} placeholder="Enter your current password" />
-              </Field>
-              <div className="sm:col-span-2 grid gap-5 sm:grid-cols-2">
-                <div>
-                  <Field label="New Password">
-                    <PasswordInput value={passwordForm.newPassword} onChange={(value) => setPasswordForm((prev) => ({ ...prev, newPassword: value }))} placeholder="Min. 8 characters" />
-                  </Field>
-                  <div className="mt-3">
-                    <StrengthBar password={passwordForm.newPassword} />
-                  </div>
-                </div>
-                <Field label="Confirm New Password">
-                  <PasswordInput value={passwordForm.confirmPassword} onChange={(value) => setPasswordForm((prev) => ({ ...prev, confirmPassword: value }))} placeholder="Re-enter new password" />
+                <Field label="Your Current Password">
+                  <PasswordInput value={adminForm.currentPassword} onChange={(value) => setAdminForm((current) => ({ ...current, currentPassword: value }))} placeholder="Authorize this action" />
                 </Field>
               </div>
             </div>
             <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
-              <span className="text-xs" style={{ color: accountSaved === "password" ? "#16A34A" : "#94A3B8" }}>
-                {accountSaved === "password" ? "✓ Password changed successfully" : "Use a strong password with letters, numbers, and symbols."}
-              </span>
-              <button
-                onClick={() => saveAccountSection("password")}
-                className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors"
-                style={{ background: "#1D4ED8" }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}
-              >
-                <Save size={14} /> Save Password
+              <span className="text-xs" style={{ color: "#94A3B8" }}>Administrator creation requires your current password for security confirmation.</span>
+              <button onClick={() => void handleCreateAdmin()} disabled={adminLoading} className="inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition-colors" style={{ background: adminLoading ? "#94A3B8" : "#1D4ED8", cursor: adminLoading ? "not-allowed" : "pointer" }}>
+                <UserPlus size={14} /> {adminLoading ? "Creating..." : "Create Administrator Account"}
               </button>
             </div>
           </div>
-        </div>
-      )}
+        ) : null}
+      </div>
     </div>
   );
 }
 
 function SystemTab() {
-  const [vals, setVals] = useState({
-    sessionTimeout: "30",
-    maxUploadMB: "5",
-  });
+  const [error, setError] = useState("");
+
   return (
     <div className="flex flex-col gap-8">
       <div>
         <h3 className="font-bold" style={{ fontSize: "1rem", color: "#0B1F4D" }}>System Configurations</h3>
-        <p className="text-sm mt-1" style={{ color: "#64748B" }}>Control platform-wide behavior, security, and defaults.</p>
+        <p className="mt-1 text-sm" style={{ color: "#64748B" }}>Control platform-wide behavior, security, and defaults.</p>
       </div>
-      <div className="grid sm:grid-cols-2 gap-5">
+
+      <FeedbackBanner error={error} success="" />
+
+      <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label style={labelSt}>Session Timeout (minutes)</label>
-          <input type="number" value={vals.sessionTimeout} onChange={(e) => setVals((p) => ({ ...p, sessionTimeout: e.target.value }))}
-            style={inputSt} onFocus={(e) => (e.target.style.borderColor = "#1D4ED8")} onBlur={(e) => (e.target.style.borderColor = "#E2E8F0")} />
+          <input type="number" value="30" disabled style={disabledSt} />
+          <p className="mt-1.5 text-xs" style={{ color: "#94A3B8" }}>Session timeout settings are enforced by the backend and are not editable from Swagger yet.</p>
         </div>
         <div>
           <label style={labelSt}>Max CV Upload Size (MB)</label>
-          <input type="number" value={vals.maxUploadMB} disabled style={disabledSt} />
-          <p className="text-xs mt-1.5" style={{ color: "#94A3B8" }}>
-            Maximum CV size is managed by the backend and currently limited to 5 MB.
-          </p>
+          <input type="number" value="5" disabled style={disabledSt} />
+          <p className="mt-1.5 text-xs" style={{ color: "#94A3B8" }}>Maximum CV size is managed by the backend and currently limited to 5 MB.</p>
         </div>
       </div>
-      <div className="pt-4 border-t flex justify-end" style={{ borderColor: "#E2E8F0" }}>
-        <button className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
+      <div className="flex justify-end border-t pt-4" style={{ borderColor: "#E2E8F0" }}>
+        <button
+          onClick={() => setError("No backend endpoint exists for editable system configuration yet.")}
+          className="inline-flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold text-white transition-colors"
           style={{ background: "#1D4ED8" }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}>
+        >
           <Save size={14} /> Save System Config
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PricingTab() {
-  // Future feature: Pricing & Fees module temporarily disabled.
-  const TIERS = [
-    { market: "Saudi Arabia 🇸🇦", base: "$4,500", remote: "$2,800", recruit: "$3,200" },
-    { market: "Egypt 🇪🇬",         base: "$2,200", remote: "$1,400", recruit: "$1,800" },
-    { market: "UAE 🇦🇪",           base: "$5,200", remote: "$3,100", recruit: "$3,900" },
-    { market: "Qatar 🇶🇦",         base: "$4,800", remote: "$2,950", recruit: "$3,500" },
-    { market: "Kuwait 🇰🇼",        base: "$4,200", remote: "$2,600", recruit: "$3,100" },
-    { market: "Bahrain 🇧🇭",       base: "$3,800", remote: "$2,300", recruit: "$2,700" },
-  ];
-  return (
-    <div className="flex flex-col gap-8">
-      <div>
-        <h3 className="font-bold" style={{ fontSize: "1rem", color: "#0B1F4D" }}>GCC Regional Pricing & Fees</h3>
-        <p className="text-sm mt-1" style={{ color: "#64748B" }}>Monthly base rates per market for JHC service tiers (USD).</p>
-      </div>
-      <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #E2E8F0" }}>
-        <table className="w-full" style={{ borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid #E2E8F0" }}>
-              {["Market","Operations Mgmt","Remote Workforce","Recruitment"].map((h) => (
-                <th key={h} className="text-left px-5 py-3 text-xs font-bold uppercase tracking-wider"
-                  style={{ color: "#94A3B8", background: "#F8FAFC", letterSpacing: "0.08em" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {TIERS.map((row, i) => (
-              <tr key={row.market} style={{ borderBottom: i < TIERS.length - 1 ? "1px solid #F1F5F9" : "none" }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#FAFBFC")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}>
-                <td className="px-5 py-3 text-sm font-semibold" style={{ color: "#0B1F4D" }}>{row.market}</td>
-                {[row.base, row.remote, row.recruit].map((val, vi) => (
-                  <td key={vi} className="px-5 py-3">
-                    <span className="text-sm font-mono font-semibold" style={{ color: "#1D4ED8" }}>{val}</span>
-                    <span className="text-xs ml-1" style={{ color: "#94A3B8" }}>/mo</span>
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="pt-4 border-t flex justify-end" style={{ borderColor: "#E2E8F0" }}>
-        <button className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
-          style={{ background: "#1D4ED8" }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}>
-          <Save size={14} /> Save Pricing
         </button>
       </div>
     </div>
@@ -569,35 +501,33 @@ export default function AdminSettingsPage() {
   return (
     <AdminLayout title="Settings">
       <div className="flex flex-col gap-5">
-        {/* Tab bar */}
-        <div className="rounded-xl bg-white flex overflow-hidden" style={{ border: "1px solid #E2E8F0" }}>
-          {TABS.map((t, i) => {
-            const active = tab === t.key;
+        <div className="flex overflow-hidden rounded-xl bg-white" style={{ border: "1px solid #E2E8F0" }}>
+          {TABS.map((tabOption, index) => {
+            const active = tab === tabOption.key;
             return (
               <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className="flex items-center gap-2.5 flex-1 justify-center px-5 py-3.5 text-sm font-medium transition-all duration-150"
+                key={tabOption.key}
+                onClick={() => setTab(tabOption.key)}
+                className="flex flex-1 items-center justify-center gap-2.5 px-5 py-3.5 text-sm font-medium transition-all duration-150"
                 style={{
                   background: active ? "#EFF6FF" : "transparent",
                   color: active ? "#1D4ED8" : "#64748B",
-                  borderRight: i < TABS.length - 1 ? "1px solid #E2E8F0" : "none",
+                  borderRight: index < TABS.length - 1 ? "1px solid #E2E8F0" : "none",
                   borderBottom: active ? "2px solid #1D4ED8" : "2px solid transparent",
                 }}
                 onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
                 onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
               >
-                <span>{t.icon}</span>
-                <span className="hidden sm:block">{t.label}</span>
+                <span>{tabOption.icon}</span>
+                <span className="hidden sm:block">{tabOption.label}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Tab content */}
         <div className="rounded-xl bg-white p-7 lg:p-9" style={{ border: "1px solid #E2E8F0" }}>
-          {tab === "profile" && <ProfileTab />}
-          {tab === "system"  && <SystemTab />}
+          {tab === "profile" ? <ProfileTab /> : null}
+          {tab === "system" ? <SystemTab /> : null}
         </div>
       </div>
     </AdminLayout>

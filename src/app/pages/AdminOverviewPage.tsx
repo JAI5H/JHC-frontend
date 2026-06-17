@@ -1,163 +1,242 @@
-// chart imports kept for future use
-// import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { BadgeCheck, Building2, FileText, Handshake, UserPlus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertCircle, FileText } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
+import { hasAdminAccessToken } from "../components/admin/adminSession";
+import {
+  deriveCandidateStatsFromList,
+  getCandidateStats,
+  getCandidates,
+  type CandidateRecord,
+  type CandidateStats,
+} from "../../services/api/candidatesApi";
+import { getAdministrators } from "../../services/api/settingsApi";
 
-const TOP_METRICS = [
-  { label: "Active Managed Squads",   value: "42 Teams",  delta: "+4 this month",       color: "#1D4ED8" },
-  { label: "Talent Utilization Rate", value: "94.2%",     delta: "Optimal efficiency",  color: "#16A34A" },
-  { label: "Total Operational Savings",value: "$142.5K",  delta: "Saved for GCC partners",color: "#0B1F4D" },
-  { label: "New Corporate Inquiries", value: "18 Requests",delta: "Pending review",      color: "#D97706" },
-];
-
-const BAR_DATA = [
-  { month: "Jan", apps: 72 },
-  { month: "Feb", apps: 88 },
-  { month: "Mar", apps: 95 },
-  { month: "Apr", apps: 110 },
-  { month: "May", apps: 134 },
-  { month: "Jun", apps: 158 },
-  { month: "Jul", apps: 142 },
-  { month: "Aug", apps: 167 },
-  { month: "Sep", apps: 180 },
-  { month: "Oct", apps: 195 },
-  { month: "Nov", apps: 214 },
-  { month: "Dec", apps: 230 },
-];
-
-const PIE_DATA = [
-  { name: "Saudi Arabia 🇸🇦", value: 42, color: "#0B1F4D" },
-  { name: "Egypt 🇪🇬",         value: 31, color: "#1D4ED8" },
-  { name: "UAE 🇦🇪",           value: 18, color: "#60A5FA" },
-  { name: "Jordan 🇯🇴",        value: 9,  color: "#BFDBFE" },
-];
-
-const ACTIVITY = [
-  { id: 1, icon: <UserPlus size={15} />, text: "Ahmed Al-Rashid joined the Talent Network",       time: "2 min ago",  type: "join" },
-  { id: 2, icon: <Building2 size={15} />, text: "Aramco requested a new Operations Squad",          time: "18 min ago", type: "request" },
-  { id: 3, icon: <BadgeCheck size={15} />, text: "Sarah Smith was shortlisted for Operations Manager", time: "1 hr ago",  type: "status" },
-  { id: 4, icon: <Handshake size={15} />, text: "NEOM signed a Remote Workforce contract",          time: "3 hr ago",   type: "contract" },
-  { id: 5, icon: <FileText size={15} />, text: "Mohamed Ali submitted his updated CV",             time: "5 hr ago",   type: "upload" },
-];
-
-const TYPE_COLORS: Record<string, string> = {
-  join: "#EFF6FF", request: "#FFF7ED", status: "#F0FDF4", contract: "#F0FDF4", upload: "#F8FAFC",
+type MetricCard = {
+  label: string;
+  value: string;
+  delta: string;
+  color: string;
 };
-const TYPE_TEXT: Record<string, string> = {
-  join: "#1D4ED8", request: "#D97706", status: "#16A34A", contract: "#16A34A", upload: "#64748B",
+
+type ActivityItem = {
+  id: number;
+  text: string;
+  time: string;
 };
+
+const TYPE_COLORS = {
+  background: "#F8FAFC",
+  text: "#64748B",
+};
+
+function formatRelativeTime(value: string | null) {
+  if (!value) return "Recently";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Recently";
+
+  const diffMs = parsed.getTime() - Date.now();
+  const diffMinutes = Math.round(diffMs / (1000 * 60));
+  const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+
+  if (Math.abs(diffMinutes) < 60) return formatter.format(diffMinutes, "minute");
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (Math.abs(diffHours) < 24) return formatter.format(diffHours, "hour");
+
+  const diffDays = Math.round(diffHours / 24);
+  return formatter.format(diffDays, "day");
+}
+
+function buildMetricCards(stats: CandidateStats, adminCount: number): MetricCard[] {
+  return [
+    {
+      label: "TOTAL TALENTS",
+      value: stats.totalCandidates.toLocaleString("en-US"),
+      delta: "Total approved candidates in system",
+      color: "#1D4ED8",
+    },
+    {
+      label: "PENDING REVIEWS",
+      value: stats.newCandidates.toLocaleString("en-US"),
+      delta: "New applications awaiting action",
+      color: "#D97706",
+    },
+    {
+      label: "ACTIVE PARTNERS",
+      value: stats.shortlistedCandidates.toLocaleString("en-US"),
+      delta: "Corporate clients with live contracts",
+      color: "#16A34A",
+    },
+    {
+      label: "TOTAL ADMINISTRATORS",
+      value: adminCount.toLocaleString("en-US"),
+      delta: "Active team profiles in directory",
+      color: "#0B1F4D",
+    },
+  ];
+}
+
+function buildActivityItems(candidates: CandidateRecord[]): ActivityItem[] {
+  return candidates.slice(0, 5).map((candidate) => ({
+    id: candidate.id,
+    text: `${candidate.fullName} submitted an application for ${candidate.currentJobTitle}.`,
+    time: formatRelativeTime(candidate.createdAt),
+  }));
+}
 
 export default function AdminOverviewPage() {
+  const [metrics, setMetrics] = useState<MetricCard[]>([]);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    if (!hasAdminAccessToken()) {
+      setIsLoading(false);
+      setMetrics([]);
+      setActivity([]);
+      setError("");
+      return () => {
+        active = false;
+      };
+    }
+
+    const loadDashboard = async () => {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        const [statsResult, candidatesResult, adminsResult] = await Promise.allSettled([
+          getCandidateStats(),
+          getCandidates({ pageNumber: 1, pageSize: 5, sort: "Newest" }),
+          getAdministrators(),
+        ]);
+
+        if (!active) return;
+
+        const candidateList =
+          candidatesResult.status === "fulfilled"
+            ? candidatesResult.value.items
+            : [];
+        const totalCandidates =
+          candidatesResult.status === "fulfilled"
+            ? candidatesResult.value.totalCount
+            : 0;
+
+        const resolvedStats =
+          statsResult.status === "fulfilled"
+            ? statsResult.value
+            : deriveCandidateStatsFromList(candidateList, totalCandidates);
+
+        const adminCount =
+          adminsResult.status === "fulfilled"
+            ? adminsResult.value.length
+            : 0;
+
+        setMetrics(buildMetricCards(resolvedStats, adminCount));
+        setActivity(buildActivityItems(candidateList));
+
+        if (
+          statsResult.status === "rejected" &&
+          candidatesResult.status === "rejected" &&
+          adminsResult.status === "rejected"
+        ) {
+          setError("Unable to load dashboard data right now.");
+        }
+      } catch {
+        if (!active) return;
+        setError("Unable to load dashboard data right now.");
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadDashboard();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <AdminLayout title="Overview">
       <div className="flex flex-col gap-6">
+        {error ? (
+          <div
+            className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm"
+            style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#DC2626" }}
+          >
+            <AlertCircle size={14} style={{ flexShrink: 0 }} />
+            {error}
+          </div>
+        ) : null}
 
-        {/* ── Top 4 metric cards ── */}
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {TOP_METRICS.map((m) => (
-            <div key={m.label} className="rounded-xl p-5 bg-white flex flex-col gap-3" style={{ border: "1px solid #E2E8F0" }}>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {(isLoading ? Array.from({ length: 4 }) : metrics).map((metric, index) => (
+            <div key={metric?.label ?? index} className="flex flex-col gap-3 rounded-xl bg-white p-5" style={{ border: "1px solid #E2E8F0" }}>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#94A3B8" }}>{m.label}</span>
-                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: m.color }} />
+                <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#94A3B8" }}>
+                  {isLoading ? "Loading..." : metric.label}
+                </span>
+                <div className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: isLoading ? "#CBD5E1" : metric.color }} />
               </div>
               <div style={{ fontSize: "1.75rem", fontWeight: 900, color: "#0B1F4D", lineHeight: 1, letterSpacing: "-0.025em" }}>
-                {m.value}
+                {isLoading ? "..." : metric.value}
               </div>
-              <div className="text-xs font-medium" style={{ color: "#64748B" }}>{m.delta}</div>
+              <div className="text-xs font-medium" style={{ color: "#64748B" }}>
+                {isLoading ? "Fetching live data" : metric.delta}
+              </div>
             </div>
           ))}
         </div>
 
-        {/* charts section removed */}
-        {false && <div className="grid lg:grid-cols-2 gap-4">
-
-          {/* Bar chart: Monthly Applications */}
-          <div className="rounded-xl bg-white p-6 flex flex-col gap-5" style={{ border: "1px solid #E2E8F0" }}>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#94A3B8" }}>Applications Volume</div>
-              <div className="font-bold" style={{ fontSize: "1rem", color: "#0B1F4D" }}>Monthly Applications — 2026</div>
-            </div>
-            <ResponsiveContainer width="100%" height={220} key="monthly-apps-chart">
-              <BarChart data={BAR_DATA} barSize={18}>
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} width={32} />
-                <Tooltip
-                  contentStyle={{ background: "#ffffff", border: "1px solid #E2E8F0", borderRadius: "8px", fontSize: "12px", boxShadow: "none" }}
-                  cursor={{ fill: "#F8FAFC" }}
-                  formatter={(v: number) => [`${v} applications`, ""]}
-                />
-                <Bar dataKey="apps" fill="#1D4ED8" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Donut chart: Talent Distribution by Market */}
-          <div className="rounded-xl bg-white p-6 flex flex-col gap-5" style={{ border: "1px solid #E2E8F0" }}>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#94A3B8" }}>Market Distribution</div>
-              <div className="font-bold" style={{ fontSize: "1rem", color: "#0B1F4D" }}>Talent Distribution by Market</div>
-            </div>
-            <div className="flex items-center gap-4">
-              <ResponsiveContainer width="55%" height={200} key="talent-dist-chart">
-                <PieChart>
-                  <Pie data={PIE_DATA} cx="50%" cy="50%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value" nameKey="name">
-                    {PIE_DATA.map((entry) => <Cell key={`cell-${entry.name}`} fill={entry.color} />)}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: "#ffffff", border: "1px solid #E2E8F0", borderRadius: "8px", fontSize: "12px", boxShadow: "none" }}
-                    formatter={(v: number) => [`${v}%`, ""]}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="flex flex-col gap-3 flex-1">
-                {PIE_DATA.map((d) => (
-                  <div key={d.name} className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: d.color }} />
-                      <span className="text-xs" style={{ color: "#64748B" }}>{d.name}</span>
-                    </div>
-                    <span className="text-xs font-bold" style={{ color: "#0B1F4D" }}>{d.value}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>}
-
-        {/* ── Recent Activity Feed ── */}
-        <div className="rounded-xl bg-white flex flex-col" style={{ border: "1px solid #E2E8F0" }}>
-          <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: "#E2E8F0" }}>
+        <div className="flex flex-col rounded-xl bg-white" style={{ border: "1px solid #E2E8F0" }}>
+          <div className="flex items-center justify-between border-b px-6 py-4" style={{ borderColor: "#E2E8F0" }}>
             <div>
               <div className="font-bold" style={{ fontSize: "0.9375rem", color: "#0B1F4D" }}>Recent Activity</div>
-              <div className="text-xs mt-0.5" style={{ color: "#94A3B8" }}>Last 5 system events</div>
+              <div className="mt-0.5 text-xs" style={{ color: "#94A3B8" }}>Latest candidate submissions</div>
             </div>
             <span
-              className="text-xs font-semibold px-2.5 py-1 rounded-full"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE" }}
             >
               Live
             </span>
           </div>
-          {ACTIVITY.map((a, i) => (
+          {(isLoading ? Array.from({ length: 5 }) : activity).map((item, index) => (
             <div
-              key={a.id}
+              key={item?.id ?? index}
               className="flex items-start gap-4 px-6 py-4 transition-colors"
-              style={{ borderBottom: i < ACTIVITY.length - 1 ? "1px solid #F1F5F9" : "none" }}
+              style={{ borderBottom: index < 4 ? "1px solid #F1F5F9" : "none" }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#FAFBFC")}
               onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}
             >
               <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 text-sm"
-                style={{ background: TYPE_COLORS[a.type], color: TYPE_TEXT[a.type] }}
+                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl text-sm"
+                style={{ background: TYPE_COLORS.background, color: TYPE_COLORS.text }}
               >
-                {a.icon}
+                <FileText size={15} />
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm" style={{ color: "#0F172A" }}>{a.text}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm" style={{ color: "#0F172A" }}>
+                  {isLoading ? "Loading recent activity..." : item.text}
+                </p>
               </div>
-              <span className="text-xs flex-shrink-0" style={{ color: "#94A3B8" }}>{a.time}</span>
+              <span className="flex-shrink-0 text-xs" style={{ color: "#94A3B8" }}>
+                {isLoading ? "..." : item.time}
+              </span>
             </div>
           ))}
+          {!isLoading && activity.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm" style={{ color: "#94A3B8" }}>
+              No recent candidate activity is available yet.
+            </div>
+          ) : null}
         </div>
       </div>
     </AdminLayout>

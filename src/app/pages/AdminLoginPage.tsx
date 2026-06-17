@@ -2,8 +2,10 @@ import { useState } from "react";
 import { ArrowRight, Eye, EyeOff, ShieldCheck, UserCog } from "lucide-react";
 import { Link, Navigate, useNavigate } from "react-router";
 import { ImageWithFallback } from "../components/shared/ImageWithFallback";
-import { AdminRole, createMockAdminSession, getAdminSession, setAdminSession } from "../components/admin/adminSession";
+import { createAdminSession, getAdminSession, normalizeAdminRole, setAdminSession } from "../components/admin/adminSession";
 import jhcLogo from "../../imgs/logo.png";
+import { extractAuthProfile, loginAdmin } from "../../services/api/authApi";
+import { getAxiosErrorMessage } from "../../services/api/utils";
 
 type LoginMode = "super_admin" | "standard_admin";
 
@@ -28,6 +30,7 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (existingSession) {
     return <Navigate replace to="/admin/overview" />;
@@ -50,8 +53,10 @@ export default function AdminLoginPage() {
 
   const activeConfig = config[mode];
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+
+    if (isSubmitting) return;
 
     if (!email.includes("@")) {
       setError("Please enter a valid official email address.");
@@ -59,13 +64,39 @@ export default function AdminLoginPage() {
     }
 
     if (password.length < 6) {
-      setError("Password must contain at least 6 characters for this mock flow.");
+      setError("Password must contain at least 6 characters.");
       return;
     }
 
     setError("");
-    setAdminSession(createMockAdminSession(mode as AdminRole, email.trim()));
-    navigate("/admin/overview", { replace: true });
+    setIsSubmitting(true);
+
+    try {
+      const trimmedEmail = email.trim();
+      const response = await loginAdmin({ email: trimmedEmail, password });
+      const authProfile = extractAuthProfile(response.data);
+
+      if (!authProfile.accessToken) {
+        setError("Login succeeded, but the backend did not return an access token.");
+        return;
+      }
+
+      setAdminSession(
+        createAdminSession({
+          email: authProfile.email ?? trimmedEmail,
+          accessToken: authProfile.accessToken,
+          role: normalizeAdminRole(authProfile.role, mode),
+          name: authProfile.name,
+          region: authProfile.region,
+        }),
+      );
+
+      navigate("/admin/overview", { replace: true });
+    } catch (requestError) {
+      setError(getAxiosErrorMessage(requestError, "Unable to sign in right now. Please try again."));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -95,7 +126,7 @@ export default function AdminLoginPage() {
               <div className="mt-3 flex flex-col gap-2 text-sm" style={{ color: "rgba(255,255,255,0.78)" }}>
                 <p>Super Admins can access all dashboard sections and security controls.</p>
                 <p>Standard Administrators can access only operational and approved settings sections.</p>
-                <p>This screen uses a mock session only. No backend verification is connected yet.</p>
+                <p>Authentication is secured through the live backend and protected routes.</p>
               </div>
             </div>
           </section>
@@ -200,10 +231,11 @@ export default function AdminLoginPage() {
 
               <button
                 type="submit"
+                disabled={isSubmitting}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-semibold text-white transition-colors"
-                style={{ background: "#0B1F4D" }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#1D4ED8")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#0B1F4D")}
+                style={{ background: isSubmitting ? "#94A3B8" : "#0B1F4D", cursor: isSubmitting ? "not-allowed" : "pointer" }}
+                onMouseEnter={(e) => { if (!isSubmitting) (e.currentTarget as HTMLElement).style.background = "#1D4ED8"; }}
+                onMouseLeave={(e) => { if (!isSubmitting) (e.currentTarget as HTMLElement).style.background = "#0B1F4D"; }}
               >
                 {activeConfig.button}
                 <ArrowRight size={15} />
@@ -211,9 +243,9 @@ export default function AdminLoginPage() {
             </form>
 
             <div className="mt-6 rounded-2xl p-4 lg:hidden" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-              <div className="text-xs font-bold uppercase tracking-[0.14em]" style={{ color: "#94A3B8" }}>Mock Session</div>
+              <div className="text-xs font-bold uppercase tracking-[0.14em]" style={{ color: "#94A3B8" }}>Secure Session</div>
               <p className="mt-2 text-sm leading-6" style={{ color: "#64748B" }}>
-                Selecting a tab determines the stored role for this mock authentication flow. No backend logic is connected yet.
+                Select the access level that matches your administrator account before signing in.
               </p>
             </div>
           </section>

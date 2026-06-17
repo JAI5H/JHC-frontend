@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useLocation } from "react-router";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { LayoutDashboard, Users, Settings, LogOut, Menu, X } from "lucide-react";
 import { ImageWithFallback } from "../shared/ImageWithFallback";
 import { clearAdminSession, getAdminSession, isSuperAdmin } from "./adminSession";
 import jhcLogo from "../../../imgs/logo.png";
+import { logoutAdmin } from "../../../services/api/authApi";
 
 const NAV = [
   { icon: <LayoutDashboard size={17} />, label: "Overview",          path: "/admin/overview" },
@@ -14,19 +15,12 @@ const NAV = [
 
 export function AdminLayout({ children, title }: { children: React.ReactNode; title: string }) {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const session = getAdminSession();
   const superAdmin = session ? isSuperAdmin(session.role) : false;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [mobileAccountMenuOpen, setMobileAccountMenuOpen] = useState(false);
-
-  if (!session) {
-    return <Navigate replace to="/admin/login" />;
-  }
-
-  if (!superAdmin && pathname === "/admin/administrators") {
-    return <Navigate replace to="/admin/overview" />;
-  }
 
   const visibleNav = NAV.filter((item) => superAdmin || item.path !== "/admin/administrators");
 
@@ -58,6 +52,28 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
     window.addEventListener("click", handleWindowClick);
     return () => window.removeEventListener("click", handleWindowClick);
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await logoutAdmin();
+    } catch {
+      // Clear local auth state even if the backend session is already invalid.
+    } finally {
+      clearAdminSession();
+      setAccountMenuOpen(false);
+      setMobileAccountMenuOpen(false);
+      setMobileMenuOpen(false);
+      navigate("/admin/login", { replace: true });
+    }
+  };
+
+  if (!session) {
+    return <Navigate replace to="/admin/login" />;
+  }
+
+  if (!superAdmin && pathname === "/admin/administrators") {
+    return <Navigate replace to="/admin/overview" />;
+  }
 
   const mobileNavPanel = (
     <div
@@ -101,10 +117,12 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
 
         <div className="mt-6 border-t pt-6" style={{ borderColor: "#E2E8F0" }}>
           <button
-            onClick={() => {
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
               setMobileAccountMenuOpen((prev) => !prev);
             }}
-            className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition-colors"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl p-2 text-left transition-colors"
             style={{ background: "transparent", border: "none", cursor: "pointer", outline: "none" }}
           >
             <div
@@ -122,23 +140,22 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
 
           {mobileAccountMenuOpen && (
             <div
-              className="mt-3 rounded-xl border p-2"
+              className="relative z-10 mt-3 rounded-xl border p-2"
               style={{ background: "#F8FAFC", borderColor: "#E2E8F0" }}
               onClick={(event) => event.stopPropagation()}
             >
-              <Link
-                to="/admin/login"
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-                style={{ color: "#0B1F4D" }}
-                onClick={() => {
-                  clearAdminSession();
-                  setMobileAccountMenuOpen(false);
-                  setMobileMenuOpen(false);
+              <button
+                type="button"
+                className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                style={{ color: "#0B1F4D", background: "transparent", border: "none", cursor: "pointer" }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleLogout();
                 }}
               >
                 <LogOut size={14} style={{ color: "#1D4ED8" }} />
                 Logout
-              </Link>
+              </button>
             </div>
           )}
         </div>
@@ -218,18 +235,17 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
               style={{ background: "#102556", borderColor: "rgba(255,255,255,0.08)", boxShadow: "0 14px 30px rgba(3,10,30,0.35)" }}
               onClick={(event) => event.stopPropagation()}
             >
-              <Link
-                to="/admin/login"
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-                style={{ color: "#ffffff" }}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                style={{ color: "#ffffff", background: "transparent", border: "none", cursor: "pointer" }}
                 onClick={() => {
-                  clearAdminSession();
-                  setAccountMenuOpen(false);
+                  void handleLogout();
                 }}
               >
                 <LogOut size={14} style={{ color: "#60A5FA" }} />
                 Logout
-              </Link>
+              </button>
             </div>
           )}
         </div>

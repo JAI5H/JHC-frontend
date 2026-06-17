@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import LandingPage from "./pages/LandingPage";
 import TalentNetworkPage from "./pages/TalentNetworkPage";
 import AdminEntryPage from "./pages/AdminEntryPage";
@@ -17,4 +17,5 @@ export const router = createBrowserRouter([
   { path: "/admin/talent",       Component: AdminTalentPage    },
   { path: "/admin/administrators", Component: AdminAdministratorsPage },
   { path: "/admin/settings",     Component: AdminSettingsPage  },
+  { path: "*",                   Component: () => <Navigate replace to="/" /> },
 ]);
