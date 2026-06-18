@@ -80,6 +80,38 @@ const STATUS_ACTION_LABELS: Record<CandidateStatus, string> = {
   Rejected: "Rejected",
 };
 
+function sanitizeDownloadFilename(filename: string, fallback: string) {
+  const sanitized = filename
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return sanitized || fallback;
+}
+
+function getDownloadFilenameFromHeaders(
+  contentDisposition: string | undefined,
+  fallbackFilename: string,
+) {
+  if (!contentDisposition) {
+    return fallbackFilename;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  const rawFilename = utf8Match?.[1] ?? asciiMatch?.[1];
+
+  if (!rawFilename) {
+    return fallbackFilename;
+  }
+
+  try {
+    return sanitizeDownloadFilename(decodeURIComponent(rawFilename), fallbackFilename);
+  } catch {
+    return sanitizeDownloadFilename(rawFilename, fallbackFilename);
+  }
+}
+
 function normalizeStatus(value: string): Status {
   const normalized = value.trim().toLowerCase();
 
@@ -449,7 +481,10 @@ export default function AdminTalentPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "jhc-talent-pool.xlsx";
+      anchor.download = getDownloadFilenameFromHeaders(
+        response.headers["content-disposition"],
+        "jhc-talent-pool.xlsx",
+      );
       anchor.click();
       URL.revokeObjectURL(url);
     } catch {
@@ -470,7 +505,10 @@ export default function AdminTalentPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `candidate-${candidateId}-cv`;
+      anchor.download = getDownloadFilenameFromHeaders(
+        response.headers["content-disposition"],
+        `candidate-${candidateId}-cv`,
+      );
       anchor.click();
       URL.revokeObjectURL(url);
     } catch {

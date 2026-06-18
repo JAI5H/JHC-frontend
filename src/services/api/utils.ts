@@ -92,10 +92,34 @@ export function getApiMessage(payload: unknown, fallbackMessage: string) {
   return getStringValue(envelope, ["message", "title", "detail"]) ?? fallbackMessage;
 }
 
+function getSafeStatusMessage(status: number | undefined, fallbackMessage: string) {
+  if (status === 401) return "Your session is no longer valid. Please sign in again.";
+  if (status === 403) return "You do not have permission to perform this action.";
+  if (status === 404) return "The requested resource could not be found.";
+  if (status === 429) return "Too many requests were sent. Please try again in a moment.";
+  if (typeof status === "number" && status >= 500) return fallbackMessage;
+  return null;
+}
+
 export function getAxiosErrorMessage(error: unknown, fallbackMessage: string) {
   if (!axios.isAxiosError(error)) {
     return fallbackMessage;
   }
 
-  return getApiMessage(error.response?.data, fallbackMessage);
+  const status = error.response?.status;
+  const safeStatusMessage = getSafeStatusMessage(status, fallbackMessage);
+  if (safeStatusMessage) {
+    return safeStatusMessage;
+  }
+
+  const responseMessage = getApiMessage(error.response?.data, fallbackMessage).trim();
+  if (!responseMessage || responseMessage === fallbackMessage) {
+    return fallbackMessage;
+  }
+
+  if (responseMessage.length > 180) {
+    return fallbackMessage;
+  }
+
+  return responseMessage;
 }

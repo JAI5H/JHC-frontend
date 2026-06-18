@@ -20,6 +20,11 @@ const INDUSTRIES    = ["Energy & Oil","Technology","Finance & Banking","Healthca
 const ENG_LEVELS    = ["Native / Bilingual","Professional Proficiency (C1–C2)","Business Proficiency (B1–B2)","Basic (A1–A2)"];
 const MAX_CV_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CV_EXTENSIONS = [".pdf", ".doc", ".docx"];
+const ALLOWED_CV_MIME_TYPES = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
 
 /* ─── Shared styles ─── */
 const S = {
@@ -70,7 +75,10 @@ function getApiErrorDetails(error: unknown) {
 
 function isAllowedCvFile(file: File) {
   const normalizedName = file.name.toLowerCase();
-  return ALLOWED_CV_EXTENSIONS.some((extension) => normalizedName.endsWith(extension));
+  const hasAllowedExtension = ALLOWED_CV_EXTENSIONS.some((extension) => normalizedName.endsWith(extension));
+  const hasAllowedMimeType = !file.type || ALLOWED_CV_MIME_TYPES.includes(file.type);
+
+  return hasAllowedExtension && hasAllowedMimeType && !normalizedName.includes("\0");
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -699,6 +707,12 @@ export default function TalentNetworkPage() {
 
     if (file.size > MAX_CV_SIZE_BYTES) {
       setFileError("Please upload a CV file smaller than 5 MB.");
+      setS3((p) => ({ ...p, cvFile: null }));
+      return;
+    }
+
+    if (file.size === 0) {
+      setFileError("Please upload a valid non-empty CV file.");
       setS3((p) => ({ ...p, cvFile: null }));
       return;
     }

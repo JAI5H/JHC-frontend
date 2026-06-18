@@ -7,7 +7,7 @@ export function CEOMessage() {
   const arabicFontStyle = isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined;
 
   return (
-    <section className="mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+    <section className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
       <div className="mx-4 overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#071633_0%,#0a1d46_100%)] px-6 py-8 text-white md:mx-0 md:px-10 md:py-9">
         <div className="relative flex flex-col gap-8 md:flex-row md:items-stretch md:gap-0" dir={isArabic ? "rtl" : "ltr"}>
           <div className={["flex flex-col justify-start md:w-[280px] md:shrink-0", isArabic ? "md:pl-10" : "md:pr-10"].join(" ")}>
@@ -17,7 +17,7 @@ export function CEOMessage() {
 
             <div className="flex items-center gap-4 md:flex-1 md:gap-5">
               <div className="size-[84px] shrink-0 overflow-hidden rounded-[16px] border bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]" style={{ borderColor: "rgba(37,99,235,0.5)" }}>
-                <img src={ecoPhoto} alt={isArabic ? "أحمد مرزوق" : "Ahmed Marzouk"} className="h-full w-full object-cover object-center" />
+                <img src={ecoPhoto} alt={isArabic ? "أحمد مرزوق" : "Ahmed Marzouk"} className="reveal-image h-full w-full object-cover object-center" />
               </div>
 
               <div className={isArabic ? "text-right" : ""} dir={isArabic ? "rtl" : "ltr"}>

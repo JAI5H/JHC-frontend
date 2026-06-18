@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { getAdminSession, hasAdminAccessToken } from "./adminSession";
+import { isSuperAdmin } from "./adminSession";
 import {
   deleteAdministrator,
   editAdministrator,
@@ -103,6 +104,7 @@ function ActionModal({
 
 export function AdministratorManagementPanel() {
   const session = getAdminSession();
+  const superAdmin = session ? isSuperAdmin(session.role) : false;
   const [admins, setAdmins] = useState<AdminDirectoryRecord[]>([]);
   const [openActionMenuId, setOpenActionMenuId] = useState<number | null>(null);
   const [directorySearch, setDirectorySearch] = useState("");
@@ -122,10 +124,10 @@ export function AdministratorManagementPanel() {
   useEffect(() => {
     let active = true;
 
-    if (!hasAdminAccessToken()) {
+    if (!hasAdminAccessToken() || !superAdmin) {
       setIsLoading(false);
       setAdmins([]);
-      setError("");
+      setError(!superAdmin ? "You do not have permission to access administrator management." : "");
       return () => {
         active = false;
       };
@@ -155,7 +157,7 @@ export function AdministratorManagementPanel() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [superAdmin]);
 
   const setMessage = (message: string) => {
     setError("");

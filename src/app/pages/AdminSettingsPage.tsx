@@ -628,13 +628,22 @@ function SystemTab() {
 }
 
 export default function AdminSettingsPage() {
+  const session = getAdminSession();
+  const superAdmin = session ? isSuperAdmin(session.role) : false;
   const [tab, setTab] = useState<Tab>("profile");
+  const availableTabs = superAdmin ? TABS : TABS.filter((tabOption) => tabOption.key !== "system");
+
+  useEffect(() => {
+    if (!superAdmin && tab === "system") {
+      setTab("profile");
+    }
+  }, [superAdmin, tab]);
 
   return (
     <AdminLayout title="Settings">
       <div className="flex flex-col gap-5">
         <div className="flex overflow-hidden rounded-xl bg-white" style={{ border: "1px solid #E2E8F0" }}>
-          {TABS.map((tabOption, index) => {
+          {availableTabs.map((tabOption, index) => {
             const active = tab === tabOption.key;
             return (
               <button
@@ -644,7 +653,7 @@ export default function AdminSettingsPage() {
                 style={{
                   background: active ? "#EFF6FF" : "transparent",
                   color: active ? "#1D4ED8" : "#64748B",
-                  borderRight: index < TABS.length - 1 ? "1px solid #E2E8F0" : "none",
+                  borderRight: index < availableTabs.length - 1 ? "1px solid #E2E8F0" : "none",
                   borderBottom: active ? "2px solid #1D4ED8" : "2px solid transparent",
                 }}
                 onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
@@ -659,7 +668,7 @@ export default function AdminSettingsPage() {
 
         <div className="rounded-xl bg-white p-7 lg:p-9" style={{ border: "1px solid #E2E8F0" }}>
           {tab === "profile" ? <ProfileTab /> : null}
-          {tab === "system" ? <SystemTab /> : null}
+          {tab === "system" && superAdmin ? <SystemTab /> : null}
         </div>
       </div>
     </AdminLayout>

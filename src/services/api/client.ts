@@ -1,8 +1,30 @@
 import axios from "axios";
 import { clearAdminSessionAndRedirect, getAdminAccessToken } from "../../app/components/admin/adminSession";
 
+const DEFAULT_API_BASE_URL = "https://api---jhcdev-vr3nmq5gzq-uc.a.run.app";
+
+function resolveApiBaseUrl() {
+  const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+  const candidate = configuredBaseUrl || DEFAULT_API_BASE_URL;
+
+  try {
+    const parsedUrl = new URL(candidate);
+    if (parsedUrl.protocol === "https:" || parsedUrl.protocol === "http:") {
+      return parsedUrl.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Fall back to the known-safe default if the configured value is invalid.
+  }
+
+  return DEFAULT_API_BASE_URL;
+}
+
 export const apiClient = axios.create({
-  baseURL: "https://api---jhcdev-vr3nmq5gzq-uc.a.run.app",
+  baseURL: resolveApiBaseUrl(),
+  headers: {
+    Accept: "application/json",
+    "X-Requested-With": "XMLHttpRequest",
+  },
 });
 
 let isRedirectingForUnauthorized = false;

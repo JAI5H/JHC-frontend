@@ -512,7 +512,7 @@ function languageSwitcher({
         return (
           <button
             key={option.code}
-            className="rounded-[10px] px-3 py-[8px] text-[12px] font-bold transition-colors duration-200"
+            className="subtle-button-hover rounded-[10px] px-3 py-[8px] text-[12px] font-bold transition-colors duration-200"
             onClick={() => setLanguage(option.code)}
             style={{
               color: active ? (onLight ? "#0B1F4D" : "#ffffff") : baseTextColor,
@@ -651,6 +651,8 @@ export default function JhcLandingPage() {
   const [activeTestimonialIndex, setActiveTestimonialIndex] = useState(0);
 
   const contactFieldKeys: ContactFormFieldKey[] = ["fullName", "company", "phone", "email"];
+  const subtleButtonHoverClassName = "subtle-button-hover";
+  const cardHoverClassName = "card-hover-lift";
 
   const updateContactField = (key: ContactFormFieldKey, value: string) => {
     setContactForm((current) => ({ ...current, [key]: value }));
@@ -884,6 +886,29 @@ export default function JhcLandingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const elements = Array.from(document.querySelectorAll<HTMLElement>(".reveal-on-scroll, .reveal-image"));
+    if (elements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.setAttribute("data-revealed", "true");
+          observer.unobserve(entry.target);
+        });
+      },
+      {
+        threshold: 0.15,
+        rootMargin: "0px 0px -10% 0px",
+      },
+    );
+
+    elements.forEach((element) => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, [language]);
+
   const handleNavClick = (href: NavSection["href"]) => (event: React.MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     const target = document.querySelector(href);
@@ -930,6 +955,40 @@ export default function JhcLandingPage() {
   return (
     <div className="w-full max-w-none min-w-0 overflow-x-hidden bg-[#f8fafc] font-sora text-[#0b1f4d]">
       <style>{`
+        .reveal-on-scroll {
+          opacity: 0;
+          transform: translateY(20px);
+          transition: opacity 0.6s ease, transform 0.6s ease;
+          will-change: opacity, transform;
+        }
+        .reveal-image {
+          opacity: 0;
+          transition: opacity 0.6s ease;
+          will-change: opacity;
+        }
+        .reveal-on-scroll[data-revealed="true"] {
+          opacity: 1;
+          transform: translateY(0);
+        }
+        .reveal-image[data-revealed="true"] {
+          opacity: 1;
+        }
+        .card-hover-lift {
+          transition: transform 0.3s ease;
+          will-change: transform;
+        }
+        .subtle-button-hover {
+          transition: transform 0.3s ease;
+          will-change: transform;
+        }
+        @media (hover: hover) and (pointer: fine) {
+          .card-hover-lift:hover {
+            transform: translateY(-4px);
+          }
+          .subtle-button-hover:hover {
+            transform: scale(1.02);
+          }
+        }
         @keyframes hero-logo-pulse {
           0%, 100% {
             transform: translate(-50%, -50%) scale(1);
@@ -981,10 +1040,32 @@ export default function JhcLandingPage() {
         .animate-marquee-ticker:hover {
           animation-play-state: paused;
         }
+        @media (prefers-reduced-motion: reduce) {
+          .reveal-on-scroll,
+          .reveal-image,
+          .card-hover-lift,
+          .subtle-button-hover {
+            opacity: 1;
+            transform: none;
+            transition: none;
+            animation: none;
+            will-change: auto;
+          }
+          .animate-marquee,
+          .animate-marquee-ticker,
+          .animate-marquee-ticker-arabic {
+            animation: none;
+          }
+        }
       `}</style>
+      <div className="relative">
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 top-0 bottom-[28%] rounded-b-[24px] bg-[#030e26] md:rounded-b-[24px]"
+      />
       <section
         className={[
-          "relative overflow-hidden rounded-b-[24px] bg-[#030e26] pb-10 pt-[112px] md:rounded-b-[24px] md:pb-0 md:pt-0",
+          "reveal-on-scroll relative overflow-hidden rounded-b-[24px] bg-[#030e26] pb-10 pt-[112px] md:rounded-b-[24px] md:pb-0 md:pt-0",
           isArabic ? "md:h-[980px]" : "md:h-[1020px]",
         ].join(" ")}
       >
@@ -1103,7 +1184,7 @@ export default function JhcLandingPage() {
               aria-controls="mobile-nav-menu"
               aria-expanded={mobileMenuOpen}
               aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
-              className={["inline-flex size-11 items-center justify-center rounded-[14px] border border-white/15 bg-white/[0.05] text-white transition-colors duration-200 md:hidden", isArabic ? "order-1" : "order-2 ml-auto"].join(" ")}
+              className={[`${subtleButtonHoverClassName} inline-flex size-11 items-center justify-center rounded-[14px] border border-white/15 bg-white/[0.05] text-white transition-colors duration-200 md:hidden`, isArabic ? "order-1" : "order-2 ml-auto"].join(" ")}
               style={navOnLight ? { color: "#0B1F4D" } : undefined}
               onClick={() => setMobileMenuOpen((open) => !open)}
               type="button"
@@ -1422,7 +1503,7 @@ export default function JhcLandingPage() {
                 <div className="absolute inset-[-18px] rounded-full bg-[#2563eb]/8 blur-[22px]" />
                 <img
                   alt="JHC logo"
-                  className="absolute left-1/2 top-1/2 h-auto w-[112px]"
+                  className="reveal-image absolute left-1/2 top-1/2 h-auto w-[112px]"
                   src={heroCenterLogo}
                   style={{ animation: "hero-logo-pulse 3.2s ease-in-out infinite", marginLeft: "40px" }}
                 />
@@ -1496,9 +1577,10 @@ export default function JhcLandingPage() {
           */}
         </div>
       </section>
+      </div>
 
-      <main className="w-full max-w-none min-w-0 overflow-x-hidden pb-20">
-        <section id="about-us" className="mx-auto mt-20 w-full max-w-none md:h-[334px] md:w-[1280px]">
+      <main className="w-full max-w-none min-w-0 overflow-x-hidden bg-[#f8fafc] pb-20">
+        <section id="about-us" className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:h-[334px] md:w-[1280px]">
           <div className="mx-4 rounded-[24px] border border-[#dbe3f0] bg-white flex flex-col gap-9 px-7 py-10 md:hidden">
             <div className={isArabic ? "max-w-none text-right" : "max-w-none text-left"}>
               <p
@@ -1646,7 +1728,7 @@ export default function JhcLandingPage() {
 
         <CEOMessage />
 
-        <section id="why-jhc" className="mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+        <section id="why-jhc" className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
           <div className="mx-4 rounded-[24px] border border-[#dbe3f0] bg-white md:hidden">
             <div className={["px-6 pb-6 pt-8", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
               <p className="text-[15px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
@@ -1675,7 +1757,7 @@ export default function JhcLandingPage() {
                 <div
                   key={title}
                   className={[
-                    "px-6 py-6",
+                    `${cardHoverClassName} px-6 py-6`,
                     index > 0 ? "border-t border-[#e2e8f0]" : "",
                   ].join(" ")}
                 >
@@ -1734,7 +1816,7 @@ export default function JhcLandingPage() {
               <div
                 key={title}
                 className={[
-                  "min-h-[396px] px-12 py-12",
+                  `${cardHoverClassName} min-h-[396px] px-12 py-12`,
                   index < 2 ? (isArabic ? "border-l border-[#e2e8f0]" : "border-r border-[#e2e8f0]") : "",
                 ].join(" ")}
               >
@@ -1757,7 +1839,7 @@ export default function JhcLandingPage() {
           </div>
         </section>
 
-        <section id="services" className="mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+        <section id="services" className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
           <div className="mx-4 rounded-[24px] border border-[#dbe3f0] bg-white md:hidden">
             <div className={["px-6 pb-6 pt-8", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
               <p className="text-[15px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
@@ -1776,7 +1858,7 @@ export default function JhcLandingPage() {
                 <div
                   key={title}
                   className={[
-                    "px-6 py-5",
+                    `${cardHoverClassName} px-6 py-5`,
                     index > 0 ? "border-t border-[#e2e8f0]" : "",
                   ].join(" ")}
                   dir={isArabic ? "rtl" : "ltr"}
@@ -1840,7 +1922,7 @@ export default function JhcLandingPage() {
               <div
                 key={title}
                 className={[
-                  "min-h-[184px] border-[#e2e8f0] px-8 py-7",
+                  `${cardHoverClassName} min-h-[184px] border-[#e2e8f0] px-8 py-7`,
                   index % 3 !== 2 ? (isArabic ? "border-l" : "border-r") : "",
                   index < 3 ? "border-b" : "",
                 ].join(" ")}
@@ -1948,7 +2030,7 @@ export default function JhcLandingPage() {
           </div>
         </div>
 
-        <section id="how-we-work" className="mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+        <section id="how-we-work" className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
           <div className="mx-4 rounded-[24px] border border-[#dbe3f0] bg-white md:hidden">
             <div className={["px-6 pb-6 pt-8", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
               <p className="text-[15px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
@@ -1967,7 +2049,7 @@ export default function JhcLandingPage() {
                 <div
                   key={title}
                   className={[
-                    "px-6 py-6",
+                    `${cardHoverClassName} px-6 py-6`,
                     index > 0 ? "border-t border-[#e2e8f0]" : "",
                   ].join(" ")}
                   dir={isArabic ? "rtl" : "ltr"}
@@ -2016,7 +2098,7 @@ export default function JhcLandingPage() {
                 <div
                 key={title}
                 className={[
-                  "min-h-[264px] px-6 py-6",
+                  `${cardHoverClassName} min-h-[264px] px-6 py-6`,
                   index < processSteps.length - 1 ? (isArabic ? "border-l border-[#e2e8f0]" : "border-r border-[#e2e8f0]") : "",
                 ].join(" ")}
                 dir={isArabic ? "rtl" : "ltr"}
@@ -2164,7 +2246,7 @@ export default function JhcLandingPage() {
         </section>
         */}
 
-        <section id="contact" className="mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+        <section id="contact" className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
           <div className="mx-4 rounded-[24px] border border-[#dbe3f0] bg-white px-6 py-8 md:hidden">
             <div className={isArabic ? "text-right" : "text-left"} dir={isArabic ? "rtl" : "ltr"}>
               <p className="text-[14px] font-bold uppercase tracking-[1.8px] text-[#60a5fa]" style={arabicContactFontStyle}>
@@ -2200,7 +2282,7 @@ export default function JhcLandingPage() {
                   <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
                   <div
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className={["flex h-12 cursor-pointer select-none items-center justify-between rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] outline-none", isArabic ? "text-right" : ""].join(" ")}
+                    className={[`${subtleButtonHoverClassName} flex h-12 cursor-pointer select-none items-center justify-between rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] outline-none`, isArabic ? "text-right" : ""].join(" ")}
                     dir={isArabic ? "rtl" : "ltr"}
                     style={{
                       color: selectedService === "" ? "#94a3b8" : "#0b1f4d",
@@ -2383,7 +2465,7 @@ export default function JhcLandingPage() {
 
                     <div
                       onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                      className={["flex h-12 cursor-pointer select-none items-center justify-between rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] outline-none", isArabic ? "text-right" : ""].join(" ")}
+                      className={[`${subtleButtonHoverClassName} flex h-12 cursor-pointer select-none items-center justify-between rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] outline-none`, isArabic ? "text-right" : ""].join(" ")}
                       dir={isArabic ? "rtl" : "ltr"}
                       style={{
                         color: selectedService === "" ? "#94a3b8" : "#0b1f4d",
@@ -2488,7 +2570,7 @@ export default function JhcLandingPage() {
 
                 <div className="space-y-4">
                   {OFFICE_LOCATIONS.map((office) => (
-                  <div key={office.city} className="rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] p-5">
+                  <div key={office.city} className={`${cardHoverClassName} rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] p-5`}>
                     <div className="flex items-start gap-3" dir={isArabic ? "rtl" : "ltr"}>
                       <div className="flex size-9 items-center justify-center rounded-full bg-[#0b1f4d] text-white">
                         <MapPin size={16} />
@@ -2522,7 +2604,7 @@ export default function JhcLandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+        <section className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
           <div className="mx-4 rounded-[24px] bg-[radial-gradient(circle_at_10%_20%,rgba(59,130,246,0.16),transparent_32%),linear-gradient(90deg,#091630_0%,#0d1c40_55%,#1d4ed8_100%)] px-6 py-12 text-center text-white md:hidden">
             <h2 className="text-[34px] font-extrabold leading-[40px] tracking-[-1px]" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
               {FINAL_CTA_COPY.title}
@@ -2575,8 +2657,13 @@ export default function JhcLandingPage() {
         </section>
       </main>
 
+      <div className="relative mt-12">
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 bottom-0 top-[28%] rounded-t-[24px] bg-[#071633] md:rounded-t-[50px]"
+      />
       <footer
-        className="mt-12 w-full rounded-t-[24px] bg-[#071633] pt-11 text-white md:rounded-t-[50px]"
+        className="relative w-full rounded-t-[24px] bg-[#071633] pt-11 text-white md:rounded-t-[50px]"
       >
         <div className="mx-auto w-full max-w-none px-4 md:w-[1280px]" dir={isArabic ? "rtl" : "ltr"}>
           <div className="md:hidden">
@@ -2688,7 +2775,7 @@ export default function JhcLandingPage() {
                 return (
                   <div key={key} className="border-b border-white/10">
                     <button
-                      className={["flex w-full items-center justify-between py-4", isArabic ? "text-right" : "text-left"].join(" ")}
+                      className={[`${subtleButtonHoverClassName} flex w-full items-center justify-between py-4`, isArabic ? "text-right" : "text-left"].join(" ")}
                       onClick={() => setOpenFooterSection((current) => (current === key ? null : key))}
                       type="button"
                     >
@@ -2840,6 +2927,7 @@ export default function JhcLandingPage() {
           </div>
         </div>
       </footer>
+      </div>
     </div>
   );
 }

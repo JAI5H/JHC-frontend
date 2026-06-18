@@ -88,9 +88,15 @@ export default function AdminLoginPage() {
       const trimmedEmail = email.trim();
       const response = await loginAdmin({ email: trimmedEmail, password });
       const authProfile = extractAuthProfile(response.data);
+      const resolvedRole = authProfile.role ? normalizeAdminRole(authProfile.role) : null;
 
       if (!authProfile.accessToken) {
         setError("Login succeeded, but the backend did not return an access token.");
+        return;
+      }
+
+      if (!resolvedRole || (mode === "standard_admin" && resolvedRole === "super_admin")) {
+        setError("Login succeeded, but the backend did not return a valid administrator role for this account.");
         return;
       }
 
@@ -98,7 +104,7 @@ export default function AdminLoginPage() {
         createAdminSession({
           email: authProfile.email ?? trimmedEmail,
           accessToken: authProfile.accessToken,
-          role: normalizeAdminRole(authProfile.role, mode),
+          role: resolvedRole,
           name: authProfile.name,
           region: authProfile.region,
         }),

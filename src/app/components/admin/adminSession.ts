@@ -12,6 +12,16 @@ const ADMIN_SESSION_STORAGE_KEY = "jhc_admin_session";
 
 export const DEFAULT_ADMIN_REGION = "GCC & Egypt Hubs";
 
+function getSessionStorage() {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage;
+}
+
+function getLegacyStorage() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage;
+}
+
 export function normalizeAdminRole(role: unknown, fallback: AdminRole = "standard_admin"): AdminRole {
   if (typeof role !== "string") return fallback;
 
@@ -45,39 +55,76 @@ export function createAdminSession({
 }): AdminSession {
   return {
     name: name?.trim() || email.trim(),
-    email,
+    email: email.trim(),
     region: region?.trim() || DEFAULT_ADMIN_REGION,
     role,
-    accessToken,
+    accessToken: accessToken.trim(),
     sessionTimeoutMinutes: typeof sessionTimeoutMinutes === "number" && Number.isFinite(sessionTimeoutMinutes)
       ? sessionTimeoutMinutes
       : undefined,
   };
 }
 
-export function getAdminSession(): AdminSession | null {
-  if (typeof window === "undefined") return null;
-
-  const raw = window.localStorage.getItem(ADMIN_SESSION_STORAGE_KEY);
+function parseAdminSession(raw: string | null): AdminSession | null {
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as AdminSession;
-    if (!parsed?.email || !parsed?.accessToken) {
-      clearAdminSession();
+    const parsed = JSON.parse(raw) as Partial<AdminSession> | null;
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const email = typeof parsed.email === "string" ? parsed.email.trim() : "";
+    const accessToken = typeof parsed.accessToken === "string" ? parsed.accessToken.trim() : "";
+    const role = normalizeAdminRole(parsed.role);
+
+    if (!email || !accessToken) {
       return null;
     }
 
-    return parsed;
+    return {
+      name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : email,
+      email,
+      region: typeof parsed.region === "string" && parsed.region.trim() ? parsed.region.trim() : DEFAULT_ADMIN_REGION,
+      role,
+      accessToken,
+      sessionTimeoutMinutes:
+        typeof parsed.sessionTimeoutMinutes === "number" && Number.isFinite(parsed.sessionTimeoutMinutes)
+          ? parsed.sessionTimeoutMinutes
+          : undefined,
+    };
   } catch {
-    clearAdminSession();
     return null;
   }
 }
 
+export function getAdminSession(): AdminSession | null {
+  if (typeof window === "undefined") return null;
+
+  const sessionStorage = getSessionStorage();
+  const legacyStorage = getLegacyStorage();
+
+  const currentSession = parseAdminSession(sessionStorage?.getItem(ADMIN_SESSION_STORAGE_KEY) ?? null);
+  if (currentSession) {
+    return currentSession;
+  }
+
+  const legacySession = parseAdminSession(legacyStorage?.getItem(ADMIN_SESSION_STORAGE_KEY) ?? null);
+  if (legacySession) {
+    sessionStorage?.setItem(ADMIN_SESSION_STORAGE_KEY, JSON.stringify(legacySession));
+    legacyStorage?.removeItem(ADMIN_SESSION_STORAGE_KEY);
+    return legacySession;
+  }
+
+  clearAdminSession();
+  return null;
+}
+
 export function setAdminSession(session: AdminSession) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(ADMIN_SESSION_STORAGE_KEY, JSON.stringify(session));
+  const sessionStorage = getSessionStorage();
+  const legacyStorage = getLegacyStorage();
+  if (!sessionStorage) return;
+
+  sessionStorage.setItem(ADMIN_SESSION_STORAGE_KEY, JSON.stringify(createAdminSession(session)));
+  legacyStorage?.removeItem(ADMIN_SESSION_STORAGE_KEY);
 }
 
 export function updateAdminSession(partial: Partial<AdminSession>) {
@@ -90,9 +137,10 @@ export function updateAdminSession(partial: Partial<AdminSession>) {
 }
 
 export function clearAdminSession() {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
-  window.sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
+  const sessionStorage = getSessionStorage();
+  const legacyStorage = getLegacyStorage();
+  sessionStorage?.removeItem(ADMIN_SESSION_STORAGE_KEY);
+  legacyStorage?.removeItem(ADMIN_SESSION_STORAGE_KEY);
 }
 
 export function redirectToAdminLogin() {
