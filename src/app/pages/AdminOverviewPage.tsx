@@ -10,6 +10,7 @@ import {
   type CandidateStats,
 } from "../../services/api/candidatesApi";
 import { getAdministrators } from "../../services/api/settingsApi";
+import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
 
 type MetricCard = {
   label: string;
@@ -92,7 +93,7 @@ export default function AdminOverviewPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
 
     if (!hasAdminAccessToken()) {
       setIsLoading(false);
@@ -100,7 +101,7 @@ export default function AdminOverviewPage() {
       setActivity([]);
       setError("");
       return () => {
-        active = false;
+        controller.abort();
       };
     }
 
@@ -110,12 +111,12 @@ export default function AdminOverviewPage() {
 
       try {
         const [statsResult, candidatesResult, adminsResult] = await Promise.allSettled([
-          getCandidateStats(),
-          getCandidates({ pageNumber: 1, pageSize: 5, sort: "Newest" }),
-          getAdministrators(),
+          getCandidateStats({ signal: controller.signal }),
+          getCandidates({ pageNumber: 1, pageSize: 5, sort: "Newest" }, { signal: controller.signal }),
+          getAdministrators({ signal: controller.signal }),
         ]);
 
-        if (!active) return;
+        if (controller.signal.aborted) return;
 
         const candidateList =
           candidatesResult.status === "fulfilled"
@@ -146,11 +147,11 @@ export default function AdminOverviewPage() {
         ) {
           setError("Unable to load dashboard data right now.");
         }
-      } catch {
-        if (!active) return;
-        setError("Unable to load dashboard data right now.");
+      } catch (requestError) {
+        if (isRequestCanceled(requestError) || controller.signal.aborted) return;
+        setError(getAxiosErrorMessage(requestError, "Unable to load dashboard data right now."));
       } finally {
-        if (active) {
+        if (!controller.signal.aborted) {
           setIsLoading(false);
         }
       }
@@ -159,7 +160,7 @@ export default function AdminOverviewPage() {
     void loadDashboard();
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 
@@ -177,7 +178,7 @@ export default function AdminOverviewPage() {
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {(isLoading ? Array.from({ length: 4 }) : metrics).map((metric, index) => (
+          {(isLoading ? Array.from({ length: 4 }, () => null) : metrics).map((metric, index) => (
             <div key={metric?.label ?? index} className="flex flex-col gap-3 rounded-xl bg-white p-5" style={{ border: "1px solid #E2E8F0" }}>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#94A3B8" }}>
@@ -208,7 +209,7 @@ export default function AdminOverviewPage() {
               Live
             </span>
           </div>
-          {(isLoading ? Array.from({ length: 5 }) : activity).map((item, index) => (
+          {(isLoading ? Array.from({ length: 5 }, () => null) : activity).map((item, index) => (
             <div
               key={item?.id ?? index}
               className="flex items-start gap-4 px-6 py-4 transition-colors"

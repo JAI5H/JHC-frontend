@@ -19,6 +19,10 @@ export type CandidateQueryParams = {
   pageSize?: number;
 };
 
+type RequestOptions = {
+  signal?: AbortSignal;
+};
+
 export type CandidateRecord = {
   id: number;
   fullName: string;
@@ -75,8 +79,9 @@ function normalizeStats(payload: unknown): CandidateStats {
   };
 }
 
-export async function getCandidates(params: CandidateQueryParams) {
+export async function getCandidates(params: CandidateQueryParams, options?: RequestOptions) {
   const response = await apiClient.get("/api/candidates", {
+    signal: options?.signal,
     params: {
       Search: params.search || undefined,
       Status: params.status || undefined,
@@ -98,8 +103,46 @@ export async function getCandidates(params: CandidateQueryParams) {
   };
 }
 
-export async function getCandidateStats() {
-  const response = await apiClient.get("/api/candidates/stats");
+export async function getAllCandidates(params: CandidateQueryParams, options?: RequestOptions) {
+  const pageSize = params.pageSize && params.pageSize > 0 ? params.pageSize : 100;
+  const firstPage = await getCandidates({
+    ...params,
+    pageNumber: 1,
+    pageSize,
+  }, options);
+
+  if (firstPage.totalCount <= firstPage.items.length) {
+    return firstPage;
+  }
+
+  const allItems = [...firstPage.items];
+  const totalPages = Math.ceil(firstPage.totalCount / pageSize);
+
+  for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+    if (options?.signal?.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
+
+    const nextPage = await getCandidates({
+      ...params,
+      pageNumber: currentPage,
+      pageSize,
+    }, options);
+
+    allItems.push(...nextPage.items);
+  }
+
+  return {
+    items: allItems,
+    totalCount: firstPage.totalCount,
+    raw: firstPage.raw,
+  };
+}
+
+export async function getCandidateStats(options?: RequestOptions) {
+  const response = await apiClient.get("/api/candidates/stats", {
+    signal: options?.signal,
+  });
   return normalizeStats(response.data);
 }
 

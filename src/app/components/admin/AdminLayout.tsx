@@ -12,6 +12,7 @@ import {
 import jhcLogo from "../../../imgs/logo.png";
 import { logoutAdmin } from "../../../services/api/authApi";
 import { getSystemSettings } from "../../../services/api/settingsApi";
+import { isRequestCanceled } from "../../../services/api/utils";
 
 const NAV = [
   { icon: <LayoutDashboard size={17} />, label: "Overview",          path: "/admin/overview" },
@@ -77,33 +78,55 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
   }, []);
 
   useEffect(() => {
-    let active = true;
+    const existingRobotsMeta = document.head.querySelector('meta[name="robots"]');
+    const previousRobotsContent = existingRobotsMeta?.getAttribute("content");
+    const robotsMeta = existingRobotsMeta ?? document.createElement("meta");
+
+    if (!existingRobotsMeta) {
+      robotsMeta.setAttribute("name", "robots");
+      document.head.appendChild(robotsMeta);
+    }
+
+    robotsMeta.setAttribute("content", "noindex, nofollow");
+
+    return () => {
+      if (previousRobotsContent) {
+        robotsMeta.setAttribute("content", previousRobotsContent);
+        return;
+      }
+
+      if (!existingRobotsMeta) {
+        robotsMeta.remove();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
 
     if (!session || resolvedSessionTimeoutMinutes !== null) {
       return () => {
-        active = false;
+        controller.abort();
       };
     }
 
     const loadSessionTimeout = async () => {
       try {
-        const settings = await getSystemSettings();
-        if (!active) return;
+        const settings = await getSystemSettings({ signal: controller.signal });
+        if (controller.signal.aborted) return;
 
         setResolvedSessionTimeoutMinutes(settings.sessionTimeoutMinutes);
         updateAdminSession({ sessionTimeoutMinutes: settings.sessionTimeoutMinutes });
-      } catch {
-        if (!active) return;
-
-        setResolvedSessionTimeoutMinutes(30);
-        updateAdminSession({ sessionTimeoutMinutes: 30 });
+      } catch (requestError) {
+        if (isRequestCanceled(requestError) || controller.signal.aborted) return;
+        setResolvedSessionTimeoutMinutes(null);
       }
     };
 
     void loadSessionTimeout();
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, [resolvedSessionTimeoutMinutes, session]);
 
@@ -187,8 +210,9 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
                   border: active ? "1px solid #BFDBFE" : "1px solid transparent",
                 }}
                 onClick={() => setMobileMenuOpen(false)}
+                aria-current={active ? "page" : undefined}
               >
-                <span style={{ color: active ? "#1D4ED8" : "#94A3B8" }}>{item.icon}</span>
+                <span aria-hidden="true" style={{ color: active ? "#1D4ED8" : "#94A3B8" }}>{item.icon}</span>
                 <span>{item.label}</span>
               </Link>
             );
@@ -213,6 +237,9 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
               event.stopPropagation();
               setMobileAccountMenuOpen((prev) => !prev);
             }}
+            aria-expanded={mobileAccountMenuOpen}
+            aria-controls="admin-mobile-account-menu"
+            aria-haspopup="menu"
             className="flex min-h-11 w-full items-center gap-3 rounded-xl p-2 text-left transition-colors"
             style={{ background: "transparent", border: "none", cursor: "pointer", outline: "none" }}
           >
@@ -226,11 +253,13 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
               <div className="truncate text-sm font-semibold" style={{ color: "#0B1F4D" }}>{session.name}</div>
               <div className="truncate text-xs" style={{ color: "#94A3B8" }}>Account Actions</div>
             </div>
-            <LogOut size={15} style={{ color: "#94A3B8", flexShrink: 0 }} />
+            <LogOut aria-hidden="true" size={15} style={{ color: "#94A3B8", flexShrink: 0 }} />
           </button>
 
           {mobileAccountMenuOpen && (
             <div
+              id="admin-mobile-account-menu"
+              role="menu"
               className="relative z-10 mt-3 rounded-xl border p-2"
               style={{ background: "#F8FAFC", borderColor: "#E2E8F0" }}
               onClick={(event) => event.stopPropagation()}
@@ -239,6 +268,7 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
                 type="button"
                 className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
                 style={{ color: "#0B1F4D", background: "transparent", border: "none", cursor: "pointer" }}
+                role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation();
                   void handleLogout();
@@ -287,8 +317,9 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
                 }}
                 onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)"; }}
                 onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                aria-current={active ? "page" : undefined}
               >
-                <span style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.35)" }}>{item.icon}</span>
+                <span aria-hidden="true" style={{ color: active ? "#ffffff" : "rgba(255,255,255,0.35)" }}>{item.icon}</span>
                 {item.label}
               </Link>
             );
@@ -298,10 +329,14 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
         {/* Admin profile block — click opens account actions */}
         <div className="relative p-4 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
           <button
+            type="button"
             onClick={(event) => {
               event.stopPropagation();
               setAccountMenuOpen((prev) => !prev);
             }}
+            aria-expanded={accountMenuOpen}
+            aria-controls="admin-desktop-account-menu"
+            aria-haspopup="menu"
             className="w-full flex items-center gap-3 rounded-xl p-2 transition-colors text-left"
             style={{ background: "transparent", border: "none", cursor: "pointer", outline: "none" }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)")}
@@ -317,11 +352,13 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
               <div className="text-sm font-semibold truncate" style={{ color: "#ffffff" }}>{session.name}</div>
               <div className="text-xs truncate" style={{ color: "rgba(255,255,255,0.35)" }}>Account Actions</div>
             </div>
-            <LogOut size={15} style={{ color: "rgba(255,255,255,0.3)", flexShrink: 0 }} />
+            <LogOut aria-hidden="true" size={15} style={{ color: "rgba(255,255,255,0.3)", flexShrink: 0 }} />
           </button>
 
           {accountMenuOpen && (
             <div
+              id="admin-desktop-account-menu"
+              role="menu"
               className="absolute inset-x-4 bottom-[72px] rounded-xl border p-2"
               style={{ background: "#102556", borderColor: "rgba(255,255,255,0.08)", boxShadow: "0 14px 30px rgba(3,10,30,0.35)" }}
               onClick={(event) => event.stopPropagation()}
@@ -330,6 +367,7 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
                 type="button"
                 className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
                 style={{ color: "#ffffff", background: "transparent", border: "none", cursor: "pointer" }}
+                role="menuitem"
                 onClick={() => {
                   void handleLogout();
                 }}
@@ -357,13 +395,16 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
                 onClick={() => setMobileMenuOpen((prev) => !prev)}
                 aria-label="Toggle admin navigation"
                 aria-expanded={mobileMenuOpen}
+                aria-controls="admin-mobile-navigation"
               >
                 <span className="relative flex h-5 w-5 items-center justify-center">
                   <Menu
+                    aria-hidden="true"
                     size={20}
                     className={`absolute transition-all duration-200 ${mobileMenuOpen ? "scale-75 opacity-0" : "scale-100 opacity-100"}`}
                   />
                   <X
+                    aria-hidden="true"
                     size={20}
                     className={`absolute transition-all duration-200 ${mobileMenuOpen ? "scale-100 opacity-100" : "scale-75 opacity-0"}`}
                   />
@@ -386,7 +427,7 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
 
         </header>
 
-        {mobileMenuOpen && mobileNavPanel}
+        {mobileMenuOpen ? <div id="admin-mobile-navigation">{mobileNavPanel}</div> : null}
 
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">
           {children}

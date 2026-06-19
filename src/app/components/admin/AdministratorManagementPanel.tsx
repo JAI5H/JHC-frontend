@@ -141,10 +141,10 @@ export function AdministratorManagementPanel() {
         const nextAdmins = await getAdministrators();
         if (!active) return;
         setAdmins(nextAdmins);
-      } catch {
+      } catch (requestError) {
         if (!active) return;
         setAdmins([]);
-        setError("Unable to load administrators right now.");
+        setError(getAxiosErrorMessage(requestError, "Unable to load administrators right now."));
       } finally {
         if (active) {
           setIsLoading(false);
@@ -305,9 +305,9 @@ export function AdministratorManagementPanel() {
       setAdmins((current) => current.filter((item) => item.id !== admin.id));
       setOpenActionMenuId(null);
       setMessage(`${admin.fullName} has been removed from Administrator Management.`);
-    } catch {
+    } catch (requestError) {
       setFeedback("");
-      setError("Unable to delete this administrator right now.");
+      setError(getAxiosErrorMessage(requestError, "Unable to delete this administrator right now."));
     } finally {
       setDeletingId(null);
     }

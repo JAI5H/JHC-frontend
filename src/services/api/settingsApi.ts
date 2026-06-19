@@ -1,10 +1,14 @@
 import { apiClient } from "./client";
+import { normalizeAdminRole } from "../../app/components/admin/adminSession";
 import {
+  ApiContractError,
   getApiMessage,
   getBooleanValue,
   getListPayload,
   getNumberValue,
   getObjectCandidate,
+  requireNumberValue,
+  requireStringValue,
   getStringValue,
 } from "./utils";
 
@@ -53,19 +57,26 @@ export type ResetAdministratorPasswordRequest = {
   newPassword: string;
 };
 
+type RequestOptions = {
+  signal?: AbortSignal;
+};
+
 function normalizeAdmin(item: unknown, index: number): AdminDirectoryRecord {
   const record = getObjectCandidate(item);
   const role = getStringValue(record, ["role"]) ?? "";
+  const normalizedRole = normalizeAdminRole(role);
+  const fullName = requireStringValue(record, ["fullName", "name"], "admin.fullName");
+  const email = requireStringValue(record, ["email"], "admin.email");
 
   return {
     id: getNumberValue(record, ["id", "adminId"]) ?? index + 1,
-    fullName: getStringValue(record, ["fullName", "name"]) ?? "Administrator",
-    email: getStringValue(record, ["email"]) ?? "",
-    region: getStringValue(record, ["region"]) ?? "All Regions",
+    fullName,
+    email,
+    region: getStringValue(record, ["region"]) ?? "",
     isActive: getBooleanValue(record, ["isActive", "active"]) ?? true,
     isSuperAdmin:
       (getBooleanValue(record, ["isSuperAdmin", "superAdmin"]) ?? false) ||
-      role.trim().toLowerCase().includes("super"),
+      normalizedRole === "super_admin",
     createdAt: getStringValue(record, ["createdAt", "createdOn", "dateCreated"]) ?? null,
   };
 }
@@ -74,10 +85,14 @@ function normalizeProfileSettings(payload: unknown): ProfileSettings {
   const envelope = getObjectCandidate(payload);
   const dataRecord = getObjectCandidate(envelope?.data) ?? envelope;
 
+  if (!dataRecord) {
+    throw new ApiContractError("Missing profile settings payload.");
+  }
+
   return {
-    fullName: getStringValue(dataRecord, ["fullName", "name"]) ?? "JHC Admin",
-    contactEmail: getStringValue(dataRecord, ["contactEmail", "email"]) ?? "admin@jhc-group.com",
-    region: getStringValue(dataRecord, ["region"]) ?? "All Regions",
+    fullName: requireStringValue(dataRecord, ["fullName", "name"], "profile.fullName"),
+    contactEmail: requireStringValue(dataRecord, ["contactEmail", "email"], "profile.contactEmail"),
+    region: requireStringValue(dataRecord, ["region"], "profile.region"),
   };
 }
 
@@ -85,13 +100,23 @@ function normalizeSystemSettings(payload: unknown): SystemSettings {
   const envelope = getObjectCandidate(payload);
   const dataRecord = getObjectCandidate(envelope?.data) ?? envelope;
 
+  if (!dataRecord) {
+    throw new ApiContractError("Missing system settings payload.");
+  }
+
   return {
-    sessionTimeoutMinutes: getNumberValue(dataRecord, ["sessionTimeoutMinutes", "sessionTimeout", "timeoutMinutes"]) ?? 30,
+    sessionTimeoutMinutes: requireNumberValue(
+      dataRecord,
+      ["sessionTimeoutMinutes", "sessionTimeout", "timeoutMinutes"],
+      "system.sessionTimeoutMinutes",
+    ),
   };
 }
 
-export async function getAdministrators() {
-  const response = await apiClient.get("/api/settings/admins");
+export async function getAdministrators(options?: RequestOptions) {
+  const response = await apiClient.get("/api/settings/admins", {
+    signal: options?.signal,
+  });
   const { items } = getListPayload(response.data);
   return items.map(normalizeAdmin);
 }
@@ -100,8 +125,10 @@ export async function addAdministrator(payload: AddAdminRequest) {
   return apiClient.post("/api/settings/admin", payload);
 }
 
-export async function getProfileSettings() {
-  const response = await apiClient.get("/api/settings/profile");
+export async function getProfileSettings(options?: RequestOptions) {
+  const response = await apiClient.get("/api/settings/profile", {
+    signal: options?.signal,
+  });
   return normalizeProfileSettings(response.data);
 }
 
@@ -109,8 +136,10 @@ export async function saveProfileSettings(payload: ProfileSettings) {
   return apiClient.put("/api/settings/profile", payload);
 }
 
-export async function getSystemSettings() {
-  const response = await apiClient.get("/api/settings/system");
+export async function getSystemSettings(options?: RequestOptions) {
+  const response = await apiClient.get("/api/settings/system", {
+    signal: options?.signal,
+  });
   return normalizeSystemSettings(response.data);
 }
 

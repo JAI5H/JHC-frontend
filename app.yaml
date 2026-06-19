@@ -1,13 +1,14 @@
-runtime: nodejs20
-env: standard
+runtime: nodejs22
+instance_class: F1
+service: frontend
 
 handlers:
-# Serve all static files with url routing
-- url: /(.*\..+)$
-  static_files: dist/\1
-  upload: dist/(.*\..+)$
+  # 1. Updated static assets handler to include jpeg, gif, and web fonts
+  - url: /(.*\.(json|ico|js|css|png|jpg|jpeg|gif|svg|webp|woff|woff2|txt|xml))$
+    static_files: dist/\1
+    upload: dist/.*\.(json|ico|js|css|png|jpg|jpeg|gif|svg|webp|woff|woff2|txt|xml)$
 
-# Catch all handler to index.html (for client-side routing)
-- url: /.*
-  static_files: dist/index.html
-  upload: dist/index.html
+  # 2. React Router Catch-all fallback
+  - url: /.*
+    static_files: dist/index.html
+    upload: dist/index.html

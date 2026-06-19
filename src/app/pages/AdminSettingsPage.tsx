@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   AlertCircle,
-  ChevronDown,
   Eye,
   EyeOff,
   Save,
@@ -21,7 +20,7 @@ import {
   saveProfileSettings,
   saveSystemSettings,
 } from "../../services/api/settingsApi";
-import { getAxiosErrorMessage } from "../../services/api/utils";
+import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
 
 type Tab = "profile" | "system";
 
@@ -148,7 +147,7 @@ function FeedbackBanner({ error, success }: { error: string; success: string }) 
 function ProfileTab() {
   const session = getAdminSession();
   const superAdmin = session ? isSuperAdmin(session.role) : false;
-  const [form, setForm] = useState({ name: session?.name ?? "JHC Admin", email: session?.email ?? "admin@jhc-group.com", region: session?.region ?? "GCC & Egypt Hubs" });
+  const [form, setForm] = useState({ name: session?.name ?? "", email: session?.email ?? "", region: session?.region ?? "" });
   const [emailForm, setEmailForm] = useState({ currentPassword: "", newEmail: "" });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [adminForm, setAdminForm] = useState({
@@ -172,26 +171,27 @@ function ProfileTab() {
   const [adminLoading, setAdminLoading] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
 
     const loadProfile = async () => {
       try {
-        const profile = await getProfileSettings();
-        if (!active) return;
+        const profile = await getProfileSettings({ signal: controller.signal });
+        if (controller.signal.aborted) return;
         setForm({
           name: profile.fullName,
           email: profile.contactEmail,
           region: profile.region,
         });
-      } catch {
-        if (!active) return;
+      } catch (requestError) {
+        if (isRequestCanceled(requestError) || controller.signal.aborted) return;
+        setProfileError(getAxiosErrorMessage(requestError, "Unable to load profile settings right now."));
       }
     };
 
     void loadProfile();
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 
@@ -370,9 +370,9 @@ function ProfileTab() {
       <div className="flex items-center gap-5 rounded-xl p-5" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
         <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl text-base font-bold" style={{ background: "#1D4ED8", color: "#60A5FA" }}>JA</div>
         <div>
-          <div className="font-semibold" style={{ color: "#0B1F4D" }}>{session?.name ?? "JHC Admin"}</div>
+          <div className="font-semibold" style={{ color: "#0B1F4D" }}>{session?.name ?? ""}</div>
           <div className="mt-0.5 text-xs" style={{ color: "#64748B" }}>
-            {superAdmin ? "Super Administrator" : "Standard Administrator"} · {session?.region ?? "GCC & Egypt Hubs"}
+            {superAdmin ? "Super Administrator" : "Standard Administrator"}{session?.region ? ` · ${session.region}` : ""}
           </div>
         </div>
         <button className="ml-auto rounded-lg border px-4 py-2 text-xs font-semibold transition-colors" style={{ borderColor: "#E2E8F0", color: "#64748B" }}>
@@ -526,28 +526,28 @@ function ProfileTab() {
 }
 
 function SystemTab() {
-  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState("30");
+  const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
 
     const loadSystemSettings = async () => {
       setLoading(true);
       setError("");
 
       try {
-        const settings = await getSystemSettings();
-        if (!active) return;
+        const settings = await getSystemSettings({ signal: controller.signal });
+        if (controller.signal.aborted) return;
         setSessionTimeoutMinutes(String(settings.sessionTimeoutMinutes));
       } catch (requestError) {
-        if (!active) return;
+        if (isRequestCanceled(requestError) || controller.signal.aborted) return;
         setError(getAxiosErrorMessage(requestError, "Unable to load system configuration right now."));
       } finally {
-        if (active) {
+        if (!controller.signal.aborted) {
           setLoading(false);
         }
       }
@@ -556,7 +556,7 @@ function SystemTab() {
     void loadSystemSettings();
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 
@@ -642,13 +642,17 @@ export default function AdminSettingsPage() {
   return (
     <AdminLayout title="Settings">
       <div className="flex flex-col gap-5">
-        <div className="flex overflow-hidden rounded-xl bg-white" style={{ border: "1px solid #E2E8F0" }}>
+        <div className="flex overflow-hidden rounded-xl bg-white" style={{ border: "1px solid #E2E8F0" }} role="tablist" aria-label="Settings sections">
           {availableTabs.map((tabOption, index) => {
             const active = tab === tabOption.key;
             return (
               <button
                 key={tabOption.key}
                 onClick={() => setTab(tabOption.key)}
+                role="tab"
+                id={`settings-tab-${tabOption.key}`}
+                aria-selected={active}
+                aria-controls={`settings-panel-${tabOption.key}`}
                 className="flex flex-1 items-center justify-center gap-2.5 px-5 py-3.5 text-sm font-medium transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                 style={{
                   background: active ? "#EFF6FF" : "transparent",
@@ -659,14 +663,20 @@ export default function AdminSettingsPage() {
                 onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
                 onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
               >
-                <span>{tabOption.icon}</span>
+                <span aria-hidden="true">{tabOption.icon}</span>
                 <span className="hidden sm:block">{tabOption.label}</span>
               </button>
             );
           })}
         </div>
 
-        <div className="rounded-xl bg-white p-7 lg:p-9" style={{ border: "1px solid #E2E8F0" }}>
+        <div
+          className="rounded-xl bg-white p-7 lg:p-9"
+          style={{ border: "1px solid #E2E8F0" }}
+          role="tabpanel"
+          id={`settings-panel-${tab}`}
+          aria-labelledby={`settings-tab-${tab}`}
+        >
           {tab === "profile" ? <ProfileTab /> : null}
           {tab === "system" && superAdmin ? <SystemTab /> : null}
         </div>

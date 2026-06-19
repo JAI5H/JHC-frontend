@@ -1,5 +1,12 @@
 import axios from "axios";
 
+export class ApiContractError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApiContractError";
+  }
+}
+
 export function getObjectCandidate(value: unknown) {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -92,6 +99,29 @@ export function getApiMessage(payload: unknown, fallbackMessage: string) {
   return getStringValue(envelope, ["message", "title", "detail"]) ?? fallbackMessage;
 }
 
+export function getValidationMessages(payload: unknown) {
+  const envelope = getObjectCandidate(payload);
+  const errorsRecord =
+    getObjectCandidate(envelope?.errors) ??
+    getObjectCandidate(getObjectCandidate(envelope?.data)?.errors);
+
+  if (!errorsRecord) {
+    return [] as string[];
+  }
+
+  return Object.values(errorsRecord).flatMap((value) => {
+    if (typeof value === "string" && value.trim()) {
+      return [value.trim()];
+    }
+
+    if (Array.isArray(value)) {
+      return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    }
+
+    return [];
+  });
+}
+
 function getSafeStatusMessage(status: number | undefined, fallbackMessage: string) {
   if (status === 401) return "Your session is no longer valid. Please sign in again.";
   if (status === 403) return "You do not have permission to perform this action.";
@@ -102,6 +132,10 @@ function getSafeStatusMessage(status: number | undefined, fallbackMessage: strin
 }
 
 export function getAxiosErrorMessage(error: unknown, fallbackMessage: string) {
+  if (error instanceof ApiContractError) {
+    return fallbackMessage;
+  }
+
   if (!axios.isAxiosError(error)) {
     return fallbackMessage;
   }
@@ -122,4 +156,52 @@ export function getAxiosErrorMessage(error: unknown, fallbackMessage: string) {
   }
 
   return responseMessage;
+}
+
+export function isRequestCanceled(error: unknown) {
+  return axios.isCancel(error) || (axios.isAxiosError(error) && error.code === "ERR_CANCELED");
+}
+
+export function getAxiosErrorDetails(error: unknown, fallbackMessage: string) {
+  const validationMessages = axios.isAxiosError(error)
+    ? getValidationMessages(error.response?.data)
+    : [];
+
+  if (validationMessages.length > 0) {
+    return {
+      message: "Please review the highlighted details and try again.",
+      validationMessages,
+    };
+  }
+
+  return {
+    message: getAxiosErrorMessage(error, fallbackMessage),
+    validationMessages,
+  };
+}
+
+export function requireStringValue(
+  record: Record<string, unknown> | null,
+  keys: string[],
+  fieldName: string,
+) {
+  const value = getStringValue(record, keys);
+  if (!value) {
+    throw new ApiContractError(`Missing required field: ${fieldName}`);
+  }
+
+  return value;
+}
+
+export function requireNumberValue(
+  record: Record<string, unknown> | null,
+  keys: string[],
+  fieldName: string,
+) {
+  const value = getNumberValue(record, keys);
+  if (value === null) {
+    throw new ApiContractError(`Missing required field: ${fieldName}`);
+  }
+
+  return value;
 }

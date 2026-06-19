@@ -17,14 +17,12 @@ import {
   deriveCandidateStatsFromList,
   type CandidateStatus,
   downloadCandidateCv,
-  exportCandidates,
-  getCandidateStats,
-  getCandidates,
+  getAllCandidates,
   type CandidateRecord,
   type CandidateStats,
   updateCandidateStatus,
 } from "../../services/api/candidatesApi";
-import { getAxiosErrorMessage } from "../../services/api/utils";
+import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
 
 type Status = "Shortlisted" | "Pending" | "Rejected" | "Interview" | "New" | "Reviewed" | "Hired";
 
@@ -161,6 +159,52 @@ function matchesStatusFilter(candidate: CandidateRecord, selectedStatus: string)
   return normalizedStatus === selectedStatus;
 }
 
+function getStatusQueryValue(selectedStatus: string) {
+  if (!selectedStatus || selectedStatus === "Under Review") {
+    return undefined;
+  }
+
+  if (selectedStatus === "New") return "New";
+  if (selectedStatus === "Shortlisted") return "Shortlisted";
+  if (selectedStatus === "Hired") return "Hired";
+  if (selectedStatus === "Rejected") return "Rejected";
+
+  return undefined;
+}
+
+function toCsvValue(value: string | number) {
+  const stringValue = String(value ?? "");
+  return `"${stringValue.replace(/"/g, '""')}"`;
+}
+
+function buildCandidatesCsv(items: CandidateRecord[]) {
+  const header = [
+    "ID",
+    "Full Name",
+    "Email",
+    "Job Title",
+    "Experience",
+    "Industry",
+    "Country",
+    "Status",
+    "Created At",
+  ];
+
+  const rows = items.map((candidate) => [
+    candidate.id,
+    candidate.fullName,
+    candidate.email,
+    candidate.currentJobTitle,
+    candidate.yearsOfExperience,
+    candidate.industry,
+    candidate.currentCountry,
+    normalizeStatus(candidate.status),
+    candidate.createdAt ?? "",
+  ]);
+
+  return [header, ...rows].map((row) => row.map(toCsvValue).join(",")).join("\n");
+}
+
 function candidateToRow(candidate: CandidateRecord): CandidateRow {
   return {
     id: candidate.id,
@@ -182,43 +226,6 @@ function buildWorkflowStats(source: CandidateStats): WorkflowStats {
     hiredCount: source.hiredCandidates,
     rejectedCount: source.rejectedCandidates,
   };
-}
-
-function getNextStatsAfterStatusUpdate(
-  currentStats: CandidateStats,
-  previousStatus: CandidateStatus,
-  nextStatus: CandidateStatus,
-): CandidateStats {
-  if (previousStatus === nextStatus) {
-    return currentStats;
-  }
-
-  const nextStats = {
-    ...currentStats,
-  };
-
-  const decrement = (status: CandidateStatus) => {
-    if (status === "New") nextStats.newCandidates = Math.max(0, nextStats.newCandidates - 1);
-    if (status === "Reviewed") nextStats.reviewedCandidates = Math.max(0, nextStats.reviewedCandidates - 1);
-    if (status === "Interview") nextStats.interviewCandidates = Math.max(0, nextStats.interviewCandidates - 1);
-    if (status === "Shortlisted") nextStats.shortlistedCandidates = Math.max(0, nextStats.shortlistedCandidates - 1);
-    if (status === "Hired") nextStats.hiredCandidates = Math.max(0, nextStats.hiredCandidates - 1);
-    if (status === "Rejected") nextStats.rejectedCandidates = Math.max(0, nextStats.rejectedCandidates - 1);
-  };
-
-  const increment = (status: CandidateStatus) => {
-    if (status === "New") nextStats.newCandidates += 1;
-    if (status === "Reviewed") nextStats.reviewedCandidates += 1;
-    if (status === "Interview") nextStats.interviewCandidates += 1;
-    if (status === "Shortlisted") nextStats.shortlistedCandidates += 1;
-    if (status === "Hired") nextStats.hiredCandidates += 1;
-    if (status === "Rejected") nextStats.rejectedCandidates += 1;
-  };
-
-  decrement(previousStatus);
-  increment(nextStatus);
-
-  return nextStats;
 }
 
 function StatusBadge({ status }: { status: Status }) {
@@ -347,9 +354,7 @@ export default function AdminTalentPage() {
   const [location, setLocation] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [stats, setStats] = useState<CandidateStats | null>(null);
+  const [allCandidates, setAllCandidates] = useState<CandidateRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -365,17 +370,15 @@ export default function AdminTalentPage() {
   }, [search, industry, expLevel, location, statusFilter]);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
 
     if (!hasAdminAccessToken()) {
       setIsLoading(false);
-      setCandidates([]);
-      setStats(null);
-      setTotalCount(0);
+      setAllCandidates([]);
       setError("");
       setSuccess("");
       return () => {
-        active = false;
+        controller.abort();
       };
     }
 
@@ -385,49 +388,26 @@ export default function AdminTalentPage() {
       setSuccess("");
 
       try {
-        const [candidatesResult, statsResult] = await Promise.allSettled([
-          getCandidates({
-            search,
-            industry,
-            country: location,
-            pageNumber: page,
-            pageSize: PAGE_SIZE,
-          }),
-          getCandidateStats(),
-        ]);
+        const candidatesResult = await getAllCandidates({
+          search,
+          status: getStatusQueryValue(statusFilter),
+          industry,
+          country: location,
+          pageSize: 100,
+        }, { signal: controller.signal });
 
-        if (!active) return;
+        if (controller.signal.aborted) return;
 
-        if (candidatesResult.status === "fulfilled") {
-          const filteredItems = candidatesResult.value.items.filter(
-            (candidate) => matchesExperienceLevel(candidate, expLevel) && matchesStatusFilter(candidate, statusFilter),
-          );
-          setCandidates(filteredItems);
-          setTotalCount(candidatesResult.value.totalCount);
-
-          if (statsResult.status === "fulfilled") {
-            setStats(statsResult.value);
-          } else {
-            setStats(deriveCandidateStatsFromList(filteredItems, candidatesResult.value.totalCount));
-          }
-
-          if (statsResult.status === "rejected") {
-            setError("");
-          }
-        } else {
-          setCandidates([]);
-          setTotalCount(0);
-          setStats(null);
-          setError("Unable to load candidate data right now.");
-        }
-      } catch {
-        if (!active) return;
-        setCandidates([]);
-        setStats(null);
-        setTotalCount(0);
-        setError("Unable to load candidate data right now.");
+        const filteredItems = candidatesResult.items.filter(
+          (candidate) => matchesExperienceLevel(candidate, expLevel) && matchesStatusFilter(candidate, statusFilter),
+        );
+        setAllCandidates(filteredItems);
+      } catch (requestError) {
+        if (isRequestCanceled(requestError) || controller.signal.aborted) return;
+        setAllCandidates([]);
+        setError(getAxiosErrorMessage(requestError, "Unable to load candidate data right now."));
       } finally {
-        if (active) {
+        if (!controller.signal.aborted) {
           setIsLoading(false);
         }
       }
@@ -436,19 +416,28 @@ export default function AdminTalentPage() {
     void loadCandidates();
 
     return () => {
-      active = false;
+      controller.abort();
     };
-  }, [expLevel, industry, location, page, search, statusFilter]);
+  }, [expLevel, industry, location, search, statusFilter]);
 
-  const rows = useMemo(() => candidates.map(candidateToRow), [candidates]);
+  const totalCount = allCandidates.length;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
+  const pagedCandidates = useMemo(
+    () => allCandidates.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [allCandidates, page],
+  );
+  const rows = useMemo(() => pagedCandidates.map(candidateToRow), [pagedCandidates]);
   const visibleCountStart = totalCount === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const visibleCountEnd = totalCount === 0 ? 0 : Math.min(page * PAGE_SIZE, totalCount);
-  const derivedStats = useMemo(() => deriveCandidateStatsFromList(candidates, totalCount), [candidates, totalCount]);
-  const workflowStats = useMemo(
-    () => buildWorkflowStats(stats ?? derivedStats),
-    [derivedStats, stats],
-  );
+  const derivedStats = useMemo(() => deriveCandidateStatsFromList(allCandidates, totalCount), [allCandidates, totalCount]);
+  const workflowStats = useMemo(() => buildWorkflowStats(derivedStats), [derivedStats]);
 
   const metrics = [
     { label: "Total Applicants", value: workflowStats.totalApplicants, delta: "Live candidate total", color: "#1D4ED8" },
@@ -465,30 +454,16 @@ export default function AdminTalentPage() {
     setExporting(true);
 
     try {
-      const response = await exportCandidates({
-        search,
-        industry,
-        country: location,
-        pageNumber: page,
-        pageSize: PAGE_SIZE,
-      });
-
-      const blob = new Blob([response.data], {
-        type:
-          response.headers["content-type"] ??
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
+      const csv = buildCandidatesCsv(allCandidates);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = getDownloadFilenameFromHeaders(
-        response.headers["content-disposition"],
-        "jhc-talent-pool.xlsx",
-      );
+      anchor.download = "jhc-talent-pool.csv";
       anchor.click();
       URL.revokeObjectURL(url);
-    } catch {
-      setError("Unable to export candidates right now.");
+    } catch (requestError) {
+      setError(getAxiosErrorMessage(requestError, "Unable to export candidates right now."));
     } finally {
       setExporting(false);
     }
@@ -501,7 +476,7 @@ export default function AdminTalentPage() {
 
     try {
       const response = await downloadCandidateCv(candidateId);
-      const blob = new Blob([response.data], { type: response.headers["content-type"] ?? "application/octet-stream" });
+      const blob = new Blob([response.data], { type: String(response.headers["content-type"] ?? "application/octet-stream") });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -511,8 +486,8 @@ export default function AdminTalentPage() {
       );
       anchor.click();
       URL.revokeObjectURL(url);
-    } catch {
-      setError("Unable to download this CV right now.");
+    } catch (requestError) {
+      setError(getAxiosErrorMessage(requestError, "Unable to download this CV right now."));
     } finally {
       setDownloadingId(null);
     }
@@ -521,7 +496,6 @@ export default function AdminTalentPage() {
   const handleCandidateStatusUpdate = async (candidate: CandidateRow, nextStatus: CandidateStatus) => {
     if (statusUpdatingId) return;
 
-    const previousStatus = candidate.status === "Pending" ? "Reviewed" : candidate.status;
     setStatusUpdatingId(candidate.id);
     setError("");
     setSuccess("");
@@ -529,7 +503,7 @@ export default function AdminTalentPage() {
     try {
       await updateCandidateStatus(candidate.id, nextStatus);
 
-      setCandidates((current) =>
+      setAllCandidates((current) =>
         current.map((item) =>
             item.id === candidate.id
             ? {
@@ -539,20 +513,6 @@ export default function AdminTalentPage() {
             : item,
         ),
       );
-
-      setStats((currentStats) =>
-        currentStats ? getNextStatsAfterStatusUpdate(currentStats, previousStatus, nextStatus) : currentStats,
-      );
-
-      try {
-        const freshStats = await getCandidateStats();
-        setStats(freshStats);
-      } catch {
-        setStats((currentStats) => currentStats ?? deriveCandidateStatsFromList(
-          candidates.map((item) => (item.id === candidate.id ? { ...item, status: nextStatus } : item)),
-          totalCount,
-        ));
-      }
 
       setSuccess(`${candidate.name} was moved to ${STATUS_ACTION_LABELS[nextStatus]}.`);
       setStatusActionMenuId(null);

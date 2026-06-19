@@ -1,4 +1,3 @@
-import axios from "axios";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ArrowLeft, ArrowRight, Upload, FileText, CheckCircle2, ChevronLeft, X } from "lucide-react";
@@ -7,6 +6,7 @@ import jhcLogo from "../../imgs/logo.png";
 import { useTranslation } from "../hooks/useTranslation";
 import { useLanguage } from "../providers/LanguageProvider";
 import { submitTalentNetworkApplication } from "../../services/api/talentNetworkApi";
+import { getAxiosErrorDetails } from "../../services/api/utils";
 
 /* ─── Types ─── */
 type Step1 = { fullName: string; email: string; phone: string; nationality: string; currentCountry: string; currentCity: string };
@@ -14,10 +14,6 @@ type Step2 = { jobTitle: string; industry: string; yearsExperience: string; expe
 type Step3 = { preferredCountry: string; englishLevel: string; linkedinUrl: string; notes: string; cvFile: File | null };
 type SelectOption = string | { label: string; value: string };
 
-const NATIONALITIES = ["Saudi Arabian","Egyptian","Emirati","Qatari","Kuwaiti","Bahraini","Omani","Jordanian","Lebanese","Pakistani","Indian","Filipino","British","American","Other"];
-const COUNTRIES     = ["Saudi Arabia","Egypt","United Arab Emirates","Qatar","Kuwait","Bahrain","Oman","Jordan","Lebanon","United Kingdom","United States","Other"];
-const INDUSTRIES    = ["Energy & Oil","Technology","Finance & Banking","Healthcare","Construction & Real Estate","Retail & E-Commerce","Telecommunications","Government","Education","Consulting","Other"];
-const ENG_LEVELS    = ["Native / Bilingual","Professional Proficiency (C1–C2)","Business Proficiency (B1–B2)","Basic (A1–A2)"];
 const MAX_CV_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CV_EXTENSIONS = [".pdf", ".doc", ".docx"];
 const ALLOWED_CV_MIME_TYPES = [
@@ -41,37 +37,6 @@ const S = {
     fontFamily: "var(--font-family-app)",
   } as React.CSSProperties,
 };
-
-function getApiErrorDetails(error: unknown) {
-  const fallbackMessage = "Something went wrong while submitting your application. Please try again.";
-
-  if (!axios.isAxiosError(error)) {
-    return { message: fallbackMessage, validationMessages: [] as string[] };
-  }
-
-  const responseData = error.response?.data;
-  const validationMessages =
-    responseData && typeof responseData === "object" && "errors" in responseData
-      ? Object.values((responseData as { errors?: Record<string, string[]> }).errors ?? {}).flat()
-      : [];
-
-  if (validationMessages.length > 0) {
-    return {
-      message: "Please review the highlighted details and try again.",
-      validationMessages,
-    };
-  }
-
-  if (responseData && typeof responseData === "object" && "detail" in responseData && typeof responseData.detail === "string") {
-    return { message: responseData.detail, validationMessages: [] as string[] };
-  }
-
-  if (responseData && typeof responseData === "object" && "title" in responseData && typeof responseData.title === "string") {
-    return { message: responseData.title, validationMessages: [] as string[] };
-  }
-
-  return { message: error.message || fallbackMessage, validationMessages: [] as string[] };
-}
 
 function isAllowedCvFile(file: File) {
   const normalizedName = file.name.toLowerCase();
@@ -124,66 +89,122 @@ function Input({ name, value, onChange, placeholder, type = "text" }: { name: st
   );
 }
 
-function Select({ name, value, onChange, options, placeholder }: { name: string; value: string; onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void; options: SelectOption[]; placeholder?: string }) {
+function Select({ name, value, onChange, options, placeholder }: { name: string; value: string; onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void; options: readonly SelectOption[]; placeholder?: string }) {
   const { language } = useLanguage();
   const isArabic = language === "ar";
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const normalizedOptions = options.map((option) =>
     typeof option === "string" ? { label: option, value: option } : option,
   );
   const selectedOption = normalizedOptions.find((option) => option.value === value);
+  const listboxId = `${name}-listbox`;
 
   const triggerChange = (nextValue: string) => {
     onChange({
       target: { name, value: nextValue },
     } as React.ChangeEvent<HTMLSelectElement>);
     setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+
+    const selectedIndex = normalizedOptions.findIndex((option) => option.value === value);
+    const nextFocusedOption = optionRefs.current[selectedIndex >= 0 ? selectedIndex : 0];
+    nextFocusedOption?.focus();
+  }, [normalizedOptions, open, value]);
+
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+    }
+  };
+
+  const handleOptionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      optionRefs.current[(index + 1) % normalizedOptions.length]?.focus();
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      optionRefs.current[(index - 1 + normalizedOptions.length) % normalizedOptions.length]?.focus();
+    }
   };
 
   return (
     <div className="relative">
-      <div
+      <button
+        ref={triggerRef}
+        type="button"
         onClick={() => setOpen((prev) => !prev)}
+        onKeyDown={handleTriggerKeyDown}
         className="flex h-12 cursor-pointer select-none items-center justify-between rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] outline-none transition-colors"
         dir={isArabic ? "rtl" : "ltr"}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-controls={listboxId}
+        aria-label={placeholder || name}
         style={{
           color: value === "" ? "#94a3b8" : "#0b1f4d",
           fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)",
           fontSize: isArabic ? "15px" : "14px",
           textAlign: isArabic ? "right" : "left",
+          width: "100%",
         }}
       >
         <span>{selectedOption?.label || placeholder || "Select..."}</span>
-        <span className="transition-transform duration-200" style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}>
+        <span aria-hidden="true" className="transition-transform duration-200" style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}>
           <svg className="size-5 text-[#64748b]" fill="none" viewBox="0 0 20 20" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 8l4 4 4-4" />
           </svg>
         </span>
-      </div>
+      </button>
 
       {open && (
         <>
-          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute top-[102%] left-0 right-0 z-30 max-h-[180px] origin-top overflow-y-auto rounded-[12px] border border-[#e2e8f0] bg-white py-1 shadow-lg transition-all duration-200">
-            {normalizedOptions.map((option) => (
-              <div
+          <div aria-hidden="true" className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div id={listboxId} role="listbox" className="absolute top-[102%] left-0 right-0 z-30 max-h-[180px] origin-top overflow-y-auto rounded-[12px] border border-[#e2e8f0] bg-white py-1 shadow-lg transition-all duration-200">
+            {normalizedOptions.map((option, index) => (
+              <button
                 key={option.value}
+                ref={(element) => {
+                  optionRefs.current[index] = element;
+                }}
+                type="button"
                 onClick={() => triggerChange(option.value)}
+                onKeyDown={(event) => handleOptionKeyDown(event, index)}
                 className="flex cursor-pointer items-center justify-between px-4 py-2 text-[14px] text-[#0b1f4d] transition-colors duration-150 hover:bg-[#f8fafc] hover:text-[#2563eb]"
                 dir={isArabic ? "rtl" : "ltr"}
+                role="option"
+                aria-selected={value === option.value}
                 style={{
                   fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)",
                   fontSize: isArabic ? "15px" : "14px",
+                  width: "100%",
+                  textAlign: isArabic ? "right" : "left",
                 }}
               >
                 <span>{option.label}</span>
                 {value === option.value && (
-                  <svg className="size-4 text-[#2563eb]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg aria-hidden="true" className="size-4 text-[#2563eb]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                   </svg>
                 )}
-              </div>
+              </button>
             ))}
           </div>
         </>
@@ -198,6 +219,7 @@ function StepBar({ current }: { current: 1 | 2 | 3 }) {
   const { language } = useLanguage();
   const isArabic = language === "ar";
   const steps = talentNetwork.stepBar.steps;
+  const stepPrefix = "prefix" in talentNetwork.stepBar ? talentNetwork.stepBar.prefix : "Step";
   const stepCircleSize = 32;
   const lineInset = stepCircleSize / 2;
 
@@ -266,7 +288,7 @@ function StepBar({ current }: { current: 1 | 2 | 3 }) {
                   fontSize: isArabic ? "12px" : "11px",
                 }}
               >
-                {isArabic ? `${talentNetwork.stepBar.prefix} ${s.num}` : `Step ${s.num}`}
+                {isArabic ? `${stepPrefix} ${s.num}` : `Step ${s.num}`}
               </div>
               <div
                 className="mt-1"
@@ -506,7 +528,16 @@ function Step3Form({ data, onChange, onFileChange, onPrev, onSubmit, submitting,
             border: `1.5px dashed ${dragOver ? "#1D4ED8" : data.cvFile ? "#0B1F4D" : "#BFDBFE"}`,
             background: dragOver ? "#EFF6FF" : data.cvFile ? "#F0F9FF" : "#F8FAFC",
           }}
+          role="button"
+          tabIndex={0}
+          aria-label={talentNetwork.step3.fields.cvUpload}
           onClick={() => fileRef.current?.click()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              fileRef.current?.click();
+            }
+          }}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
@@ -532,6 +563,7 @@ function Step3Form({ data, onChange, onFileChange, onPrev, onSubmit, submitting,
                 </div>
               </div>
               <button
+                type="button"
                 onClick={(e) => { e.stopPropagation(); onFileChange(null); }}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-[transform,border-color,color,background-color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                 style={{ color: "#64748B", border: "1px solid #E2E8F0", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "13px" : undefined }}
@@ -759,7 +791,10 @@ export default function TalentNetworkPage() {
 
       setDone(true);
     } catch (error) {
-      const { message, validationMessages: nextValidationMessages } = getApiErrorDetails(error);
+      const { message, validationMessages: nextValidationMessages } = getAxiosErrorDetails(
+        error,
+        "Something went wrong while submitting your application. Please try again.",
+      );
       setSubmitError(message);
       setValidationMessages(nextValidationMessages);
     } finally {

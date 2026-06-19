@@ -499,6 +499,8 @@ function languageSwitcher({
 
   return (
     <div
+      aria-label={isArabic ? "تبديل اللغة" : "Language switcher"}
+      role="group"
       className={["inline-flex items-center rounded-[14px] border p-1", className].join(" ")}
       style={{
         borderColor: onLight ? "rgba(11,31,77,0.10)" : "rgba(255,255,255,0.14)",
@@ -513,7 +515,10 @@ function languageSwitcher({
           <button
             key={option.code}
             className="subtle-button-hover rounded-[10px] px-3 py-[8px] text-[12px] font-bold transition-colors duration-200"
-            onClick={() => setLanguage(option.code)}
+            onClick={() => setLanguage(option.code as "en" | "ar")}
+            aria-label={option.code === "ar" ? "Switch language to Arabic" : "Switch language to English"}
+            aria-pressed={active}
+            lang={option.code}
             style={{
               color: active ? (onLight ? "#0B1F4D" : "#ffffff") : baseTextColor,
               background: active ? activeBackground : "transparent",
@@ -584,7 +589,7 @@ function getArabicMobileMetricValue(value: string) {
   return value;
 }
 
-function getArabicMarqueePhrases(items: string[]) {
+function getArabicMarqueePhrases(items: readonly string[]) {
   const phrases: string[] = [];
 
   for (let index = 0; index < items.length; index += 2) {
@@ -605,9 +610,9 @@ export default function JhcLandingPage() {
   const isArabic = language === "ar";
   const heroCopy = landing.hero;
   const SOCIAL_LINKS = landing.socialLinks;
-  const CONTACT_FORM_FIELDS = landing.contactFormFields as ContactField[];
+  const CONTACT_FORM_FIELDS = landing.contactFormFields as unknown as ContactField[];
   const CONTACT_SERVICE_OPTIONS = landing.contactServiceOptions;
-  const OFFICE_LOCATIONS = landing.officeLocations as OfficeLocation[];
+  const OFFICE_LOCATIONS = landing.officeLocations as unknown as OfficeLocation[];
   const FOOTER_COMPANY_LINKS = landing.footerCompanyLinks;
   const FOOTER_SERVICE_LINKS = landing.footerServiceLinks;
   const FOOTER_CONTACT_CHANNELS = landing.footerContactChannels;
@@ -624,13 +629,15 @@ export default function JhcLandingPage() {
   const marqueeItems = landing.marqueeItems;
   const orbitCards: OrbitCard[] = landing.orbitCards.map((item) => ({ ...item, icon: LANDING_ICON_MAP[item.icon] }));
   const heroOrbitCards: OrbitCard[] = translations.en.landing.hero.orbitCards.map((item) => ({ ...item, icon: LANDING_ICON_MAP[item.icon] }));
-  const navSections: NavSection[] = landing.navSections as NavSection[];
-  const heroNavSections: NavSection[] = heroCopy.desktopNav.links as NavSection[];
-  const mobileNavSections: Array<Pick<NavSection, "href" | "label">> = landing.mobileNavSections as Array<Pick<NavSection, "href" | "label">>;
+  const navSections: NavSection[] = landing.navSections as unknown as NavSection[];
+  const heroNavSections: NavSection[] = heroCopy.desktopNav.links as unknown as NavSection[];
+  const mobileNavSections: Array<Pick<NavSection, "href" | "label">> = landing.mobileNavSections as unknown as Array<Pick<NavSection, "href" | "label">>;
 
   const orbitCardRefs = useRef<Array<HTMLDivElement | null>>([]);
   const testimonialsCarouselRef = useRef<HTMLDivElement | null>(null);
   const testimonialCardRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const mobileServiceTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const desktopServiceTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [contactForm, setContactForm] = useState<Record<ContactFormFieldKey, string>>({
     fullName: "",
     company: "",
@@ -771,6 +778,24 @@ export default function JhcLandingPage() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [mobileMenuOpen]);
+
+  useEffect(() => {
+    if (!isDropdownOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsDropdownOpen(false);
+        mobileServiceTriggerRef.current?.focus();
+        desktopServiceTriggerRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isDropdownOpen]);
 
   useEffect(() => {
     const sectionElements = navSections
@@ -918,6 +943,19 @@ export default function JhcLandingPage() {
     target.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const handleLogoClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    setMobileMenuOpen(false);
+    if (window.location.pathname !== "/") return;
+    event.preventDefault();
+    setActiveSection(null);
+    const heroSection = document.getElementById("hero");
+    if (heroSection instanceof HTMLElement) {
+      heroSection.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const mobileNavSurfaceStyle = {
     border: navOnLight ? "1px solid rgba(11,31,77,0.10)" : "1px solid rgba(255,255,255,0.25)",
     background: navOnLight
@@ -953,7 +991,10 @@ export default function JhcLandingPage() {
     : [];
 
   return (
-    <div className="w-full max-w-none min-w-0 overflow-x-hidden bg-[#f8fafc] font-sora text-[#0b1f4d]">
+    <div
+      className="w-full max-w-none min-w-0 overflow-x-hidden bg-[#f8fafc] text-[#0b1f4d]"
+      data-mobile-arabic-typography={isArabic ? "true" : undefined}
+    >
       <style>{`
         .reveal-on-scroll {
           opacity: 0;
@@ -1057,6 +1098,14 @@ export default function JhcLandingPage() {
             animation: none;
           }
         }
+        @media (max-width: 767px) {
+          [data-mobile-arabic-typography="true"] :is(h1, h2, h3, h4, p, span, a, button, label, li, input, textarea) {
+            letter-spacing: normal;
+            text-transform: none;
+            font-kerning: normal;
+            font-feature-settings: normal;
+          }
+        }
       `}</style>
       <div className="relative">
       <div
@@ -1064,8 +1113,9 @@ export default function JhcLandingPage() {
         className="absolute inset-x-0 top-0 bottom-[28%] rounded-b-[24px] bg-[#030e26] md:rounded-b-[24px]"
       />
       <section
+        id="hero"
         className={[
-          "reveal-on-scroll relative overflow-hidden rounded-b-[24px] bg-[#030e26] pb-10 pt-[112px] md:rounded-b-[24px] md:pb-0 md:pt-0",
+          "relative overflow-hidden rounded-b-[24px] bg-[#030e26] pb-10 pt-[112px] md:rounded-b-[24px] md:pb-0 md:pt-0",
           isArabic ? "md:h-[980px]" : "md:h-[1020px]",
         ].join(" ")}
       >
@@ -1105,11 +1155,18 @@ export default function JhcLandingPage() {
             dir={isArabic ? "ltr" : "ltr"}
             style={mobileNavSurfaceStyle}
           >
-            <img
-              alt="JHC"
-              className={["h-[34px] w-auto md:h-[42px]", isArabic ? "order-2 md:absolute md:right-[30px]" : ""].join(" ")}
-              src={logo}
-            />
+            <a
+              aria-label="JHC home"
+              className={["inline-flex shrink-0 items-center", isArabic ? "order-2 md:absolute md:right-[30px]" : ""].join(" ")}
+              href="/#hero"
+              onClick={handleLogoClick}
+            >
+              <img
+                alt="JHC"
+                className="h-[34px] w-auto md:h-[42px]"
+                src={logo}
+              />
+            </a>
             <nav
               className={[
                 "hidden items-center gap-8 text-[12px] font-bold transition-colors duration-200 md:flex",
@@ -1135,6 +1192,7 @@ export default function JhcLandingPage() {
                     }}
                     href={href}
                     onClick={handleNavClick(href)}
+                    aria-current={isActive ? "page" : undefined}
                   >
                     <span
                       style={{
@@ -1189,7 +1247,7 @@ export default function JhcLandingPage() {
               onClick={() => setMobileMenuOpen((open) => !open)}
               type="button"
             >
-              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+              {mobileMenuOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
             </button>
 
             <div
@@ -1219,6 +1277,7 @@ export default function JhcLandingPage() {
                         className={["rounded-[16px] border border-white/10 bg-white/[0.03] px-4 py-4 text-[13px] font-bold transition-colors duration-200", isArabic ? "text-right" : "uppercase tracking-[1.4px]"].join(" ")}
                         href={href}
                         onClick={handleNavClick(href)}
+                        aria-current={isActive ? "page" : undefined}
                         style={{
                           borderColor: isActive
                             ? navOnLight
@@ -1297,7 +1356,7 @@ export default function JhcLandingPage() {
 
         <div className="relative z-10 w-full max-w-none px-4 md:hidden">
           <div className="w-full max-w-none py-2 text-center">
-            <h1
+            <div
               className={[
                 "mx-auto text-[34px] font-extrabold leading-[41px] tracking-[-1.1px] text-white",
                 isArabic ? "max-w-[352px]" : "max-w-[320px]",
@@ -1321,7 +1380,7 @@ export default function JhcLandingPage() {
                   Strategic{"\u00A0"}Operating Models <span className="text-[#3b82f6]">{heroCopy.main.highlightedText}</span>
                 </>
               )}
-            </h1>
+            </div>
 
             <p className="mt-5 text-[16px] leading-[29px] text-[#b8c1d1]" style={heroArabicFontStyle}>
               {heroCopy.main.description}
@@ -1585,7 +1644,17 @@ export default function JhcLandingPage() {
             <div className={isArabic ? "max-w-none text-right" : "max-w-none text-left"}>
               <p
                 className="text-[15px] font-bold uppercase tracking-[1.9px] text-[#2563eb]"
-                style={isArabic ? heroArabicFontStyle : undefined}
+                style={
+                  isArabic
+                    ? {
+                        ...heroArabicFontStyle,
+                        letterSpacing: "0",
+                        textTransform: "none",
+                        fontKerning: "normal",
+                        fontFeatureSettings: "normal",
+                      }
+                    : undefined
+                }
               >
                 {isArabic ? operatingModelCopy.eyebrow : "Our Approach"}
               </p>
@@ -2280,49 +2349,59 @@ export default function JhcLandingPage() {
 
                 <label className="relative flex flex-col gap-2">
                   <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
-                  <div
+                  <button
+                    ref={mobileServiceTriggerRef}
+                    type="button"
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                     className={[`${subtleButtonHoverClassName} flex h-12 cursor-pointer select-none items-center justify-between rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] outline-none`, isArabic ? "text-right" : ""].join(" ")}
                     dir={isArabic ? "rtl" : "ltr"}
+                    aria-expanded={isDropdownOpen}
+                    aria-haspopup="listbox"
+                    aria-controls="landing-service-listbox-mobile"
+                    aria-label={CONTACT_SECTION_COPY.serviceLabel}
                     style={{
                       color: selectedService === "" ? "#94a3b8" : "#0b1f4d",
                       ...arabicContactFontStyle,
                     }}
                   >
                     <span>{selectedService || CONTACT_SECTION_COPY.servicePlaceholder}</span>
-                    <span className="transition-transform duration-200" style={{ transform: isDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
+                    <span aria-hidden="true" className="transition-transform duration-200" style={{ transform: isDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
                       <svg className="size-5 text-[#64748b]" fill="none" viewBox="0 0 20 20" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 8l4 4 4-4" />
                       </svg>
                     </span>
-                  </div>
+                  </button>
 
                   {isDropdownOpen && (
                     <>
-                      <div className="fixed inset-0 z-20" onClick={() => setIsDropdownOpen(false)} />
+                      <div aria-hidden="true" className="fixed inset-0 z-20" onClick={() => setIsDropdownOpen(false)} />
 
-                      <div className="absolute left-0 right-0 top-[102%] z-30 overflow-hidden rounded-[12px] border border-[#e2e8f0] bg-white py-1 shadow-lg">
+                      <div id="landing-service-listbox-mobile" role="listbox" className="absolute left-0 right-0 top-[102%] z-30 overflow-hidden rounded-[12px] border border-[#e2e8f0] bg-white py-1 shadow-lg">
                         {CONTACT_SERVICE_OPTIONS.map((option) => (
-                          <div
+                          <button
                             key={option}
+                            type="button"
                             onClick={() => {
                               setSelectedService(option);
                               setIsDropdownOpen(false);
+                              mobileServiceTriggerRef.current?.focus();
                               if (option !== CONTACT_SECTION_COPY.otherServiceOption) {
                                 setCustomService("");
                               }
                             }}
                             className={["flex cursor-pointer items-center justify-between px-4 py-2.5 text-[14px] text-[#0b1f4d] transition-colors duration-150 hover:bg-[#f8fafc] hover:text-[#2563eb]", isArabic ? "text-right" : ""].join(" ")}
                             dir={isArabic ? "rtl" : "ltr"}
+                            role="option"
+                            aria-selected={selectedService === option}
                             style={arabicContactFontStyle}
                           >
                             <span>{option}</span>
                             {selectedService === option && (
-                              <svg className="size-4 text-[#2563eb]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg aria-hidden="true" className="size-4 text-[#2563eb]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                               </svg>
                             )}
-                          </div>
+                          </button>
                         ))}
                       </div>
                     </>
@@ -2463,49 +2542,59 @@ export default function JhcLandingPage() {
                   <label className="col-span-2 relative flex flex-col gap-2">
 	                    <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
 
-                    <div
+                    <button
+                      ref={desktopServiceTriggerRef}
+                      type="button"
                       onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                       className={[`${subtleButtonHoverClassName} flex h-12 cursor-pointer select-none items-center justify-between rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] outline-none`, isArabic ? "text-right" : ""].join(" ")}
                       dir={isArabic ? "rtl" : "ltr"}
+                      aria-expanded={isDropdownOpen}
+                      aria-haspopup="listbox"
+                      aria-controls="landing-service-listbox-desktop"
+                      aria-label={CONTACT_SECTION_COPY.serviceLabel}
                       style={{
                         color: selectedService === "" ? "#94a3b8" : "#0b1f4d",
                         ...arabicContactFontStyle,
                       }}
                     >
 	                      <span>{selectedService || CONTACT_SECTION_COPY.servicePlaceholder}</span>
-                      <span className="transition-transform duration-200" style={{ transform: isDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
+                      <span aria-hidden="true" className="transition-transform duration-200" style={{ transform: isDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
                         <svg className="size-5 text-[#64748b]" fill="none" viewBox="0 0 20 20" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 8l4 4 4-4" />
                         </svg>
                       </span>
-                    </div>
+                    </button>
 
                     {isDropdownOpen && (
                       <>
-                        <div className="fixed inset-0 z-20" onClick={() => setIsDropdownOpen(false)} />
+                        <div aria-hidden="true" className="fixed inset-0 z-20" onClick={() => setIsDropdownOpen(false)} />
 
-                        <div className="absolute left-0 right-0 top-[102%] z-30 overflow-hidden rounded-[12px] border border-[#e2e8f0] bg-white py-1 shadow-lg">
+                        <div id="landing-service-listbox-desktop" role="listbox" className="absolute left-0 right-0 top-[102%] z-30 overflow-hidden rounded-[12px] border border-[#e2e8f0] bg-white py-1 shadow-lg">
                           {CONTACT_SERVICE_OPTIONS.map((option) => (
-                            <div
+                            <button
                               key={option}
+                              type="button"
                               onClick={() => {
                                 setSelectedService(option);
                                 setIsDropdownOpen(false);
+                                desktopServiceTriggerRef.current?.focus();
                                 if (option !== CONTACT_SECTION_COPY.otherServiceOption) {
                                   setCustomService("");
                                 }
                               }}
                               className={["flex cursor-pointer items-center justify-between px-4 py-2.5 text-[14px] text-[#0b1f4d] transition-colors duration-150 hover:bg-[#f8fafc] hover:text-[#2563eb]", isArabic ? "text-right" : ""].join(" ")}
                               dir={isArabic ? "rtl" : "ltr"}
+                              role="option"
+                              aria-selected={selectedService === option}
                               style={arabicContactFontStyle}
                             >
                               <span>{option}</span>
                               {selectedService === option && (
-                                <svg className="size-4 text-[#2563eb]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <svg aria-hidden="true" className="size-4 text-[#2563eb]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                                 </svg>
                               )}
-                            </div>
+                            </button>
                           ))}
                         </div>
                       </>
@@ -2778,11 +2867,14 @@ export default function JhcLandingPage() {
                       className={[`${subtleButtonHoverClassName} flex w-full items-center justify-between py-4`, isArabic ? "text-right" : "text-left"].join(" ")}
                       onClick={() => setOpenFooterSection((current) => (current === key ? null : key))}
                       type="button"
+                      aria-expanded={isOpen}
+                      aria-controls={`footer-section-${key}`}
                     >
                       <span className="text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
                         {title}
                       </span>
                       <svg
+                        aria-hidden="true"
                         className="size-4 text-[#60a5fa] transition-transform duration-300"
                         style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                         fill="none"
@@ -2793,6 +2885,8 @@ export default function JhcLandingPage() {
                       </svg>
                     </button>
                     <div
+                      id={`footer-section-${key}`}
+                      aria-hidden={!isOpen}
                       className={[
                         "grid transition-all duration-300 ease-out",
                         isOpen ? "grid-rows-[1fr] pb-4 opacity-100" : "grid-rows-[0fr] opacity-0",
