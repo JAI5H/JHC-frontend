@@ -10,7 +10,7 @@ import { getAxiosErrorDetails } from "../../services/api/utils";
 
 /* ─── Types ─── */
 type Step1 = { fullName: string; email: string; phone: string; nationality: string; currentCountry: string; currentCity: string };
-type Step2 = { jobTitle: string; industry: string; yearsExperience: string; expectedSalary: string; employmentType: string };
+type Step2 = { jobTitle: string; industry: string; yearsExperience: string; expectedSalary: string; employmentType: string[] };
 type Step3 = { preferredCountry: string; englishLevel: string; linkedinUrl: string; notes: string; cvFile: File | null };
 type SelectOption = string | { label: string; value: string };
 
@@ -366,11 +366,23 @@ function Step1Form({ data, onChange, onNext }: { data: Step1; onChange: (e: Reac
 }
 
 /* ─── Step 2 ─── */
-function Step2Form({ data, onChange, onNext, onPrev }: { data: Step2; onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; onNext: () => void; onPrev: () => void }) {
+function Step2Form({
+  data,
+  onChange,
+  onEmploymentTypeToggle,
+  onNext,
+  onPrev,
+}: {
+  data: Step2;
+  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+  onEmploymentTypeToggle: (value: string) => void;
+  onNext: () => void;
+  onPrev: () => void;
+}) {
   const { talentNetwork } = useTranslation();
   const { language } = useLanguage();
   const isArabic = language === "ar";
-  const valid = data.jobTitle && data.industry && data.yearsExperience && data.expectedSalary && data.employmentType;
+  const valid = data.jobTitle && data.industry && data.yearsExperience && data.expectedSalary && data.employmentType.length > 0;
   return (
     <div className="flex flex-col gap-8">
       <div>
@@ -392,11 +404,11 @@ function Step2Form({ data, onChange, onNext, onPrev }: { data: Step2; onChange: 
         </Field>
       </div>
 
-      {/* Employment type radio group */}
+      {/* Employment type multi-select */}
       <Field label={talentNetwork.step2.fields.employmentType} required>
-        <div className="grid sm:grid-cols-3 gap-3 mt-1">
+        <div className="mt-1 grid gap-3 sm:grid-cols-2">
           {talentNetwork.step2.employmentOptions.map((opt) => {
-            const active = data.employmentType === opt.value;
+            const active = data.employmentType.includes(opt.value);
             return (
               <label
                 key={opt.value}
@@ -406,11 +418,18 @@ function Step2Form({ data, onChange, onNext, onPrev }: { data: Step2; onChange: 
                   background: active ? "#EFF6FF" : "#F8FAFC",
                 }}
               >
-                <input type="radio" name="employmentType" value={opt.value} checked={active} onChange={onChange} className="sr-only" />
+                <input
+                  type="checkbox"
+                  name="employmentType"
+                  value={opt.value}
+                  checked={active}
+                  onChange={() => onEmploymentTypeToggle(opt.value)}
+                  className="sr-only"
+                />
                 <div className="flex items-center gap-2">
-                  <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                  <div className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-[4px] border-2"
                     style={{ borderColor: active ? "#1D4ED8" : "#CBD5E1" }}>
-                    {active && <div className="w-2 h-2 rounded-full" style={{ background: "#1D4ED8" }} />}
+                    {active ? <div className="h-2 w-2 rounded-[2px]" style={{ background: "#1D4ED8" }} /> : null}
                   </div>
                   <span className="text-sm font-semibold" style={{ color: active ? "#0B1F4D" : "#0F172A", fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : "var(--font-family-app)", fontSize: isArabic ? "15px" : undefined }}>{opt.label}</span>
                 </div>
@@ -699,7 +718,7 @@ export default function TalentNetworkPage() {
   const [fileError, setFileError] = useState<string | null>(null);
 
   const [s1, setS1] = useState<Step1>({ fullName: "", email: "", phone: "", nationality: "", currentCountry: "", currentCity: "" });
-  const [s2, setS2] = useState<Step2>({ jobTitle: "", industry: "", yearsExperience: "", expectedSalary: "", employmentType: "" });
+  const [s2, setS2] = useState<Step2>({ jobTitle: "", industry: "", yearsExperience: "", expectedSalary: "", employmentType: [] });
   const [s3, setS3] = useState<Step3>({ preferredCountry: "", englishLevel: "", linkedinUrl: "", notes: "", cvFile: null });
 
   const clearSubmissionFeedback = () => {
@@ -715,6 +734,16 @@ export default function TalentNetworkPage() {
   const onChange2 = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     clearSubmissionFeedback();
     setS2((p) => ({ ...p, [e.target.name]: e.target.value }));
+  };
+
+  const onEmploymentTypeToggle = (value: string) => {
+    clearSubmissionFeedback();
+    setS2((current) => ({
+      ...current,
+      employmentType: current.employmentType.includes(value)
+        ? current.employmentType.filter((item) => item !== value)
+        : [...current.employmentType, value],
+    }));
   };
 
   const onChange3 = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -891,7 +920,7 @@ export default function TalentNetworkPage() {
             ) : step === 1 ? (
               <Step1Form data={s1} onChange={onChange1} onNext={() => setStep(2)} />
             ) : step === 2 ? (
-              <Step2Form data={s2} onChange={onChange2} onNext={() => setStep(3)} onPrev={() => setStep(1)} />
+              <Step2Form data={s2} onChange={onChange2} onEmploymentTypeToggle={onEmploymentTypeToggle} onNext={() => setStep(3)} onPrev={() => setStep(1)} />
             ) : (
               <Step3Form
                 data={s3}

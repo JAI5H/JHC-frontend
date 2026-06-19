@@ -13,6 +13,22 @@ import {
 } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
 import { hasAdminAccessToken } from "../components/admin/adminSession";
+import { useTranslation } from "../hooks/useTranslation";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "../components/ui/drawer";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "../components/ui/sheet";
+import { useIsMobile } from "../components/ui/use-mobile";
 import {
   deriveCandidateStatsFromList,
   type CandidateStatus,
@@ -28,6 +44,7 @@ type Status = "Shortlisted" | "Pending" | "Rejected" | "Interview" | "New" | "Re
 
 type CandidateRow = {
   id: number;
+  record: CandidateRecord;
   name: string;
   initials: string;
   title: string;
@@ -133,6 +150,21 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
+function formatCandidateSubmissionDate(value: string | null) {
+  if (!value) return null;
+
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return parsedDate.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function matchesExperienceLevel(candidate: CandidateRecord, selectedLevel: string) {
   if (!selectedLevel) return true;
 
@@ -177,37 +209,10 @@ function toCsvValue(value: string | number) {
   return `"${stringValue.replace(/"/g, '""')}"`;
 }
 
-function buildCandidatesCsv(items: CandidateRecord[]) {
-  const header = [
-    "ID",
-    "Full Name",
-    "Email",
-    "Job Title",
-    "Experience",
-    "Industry",
-    "Country",
-    "Status",
-    "Created At",
-  ];
-
-  const rows = items.map((candidate) => [
-    candidate.id,
-    candidate.fullName,
-    candidate.email,
-    candidate.currentJobTitle,
-    candidate.yearsOfExperience,
-    candidate.industry,
-    candidate.currentCountry,
-    normalizeStatus(candidate.status),
-    candidate.createdAt ?? "",
-  ]);
-
-  return [header, ...rows].map((row) => row.map(toCsvValue).join(",")).join("\n");
-}
-
 function candidateToRow(candidate: CandidateRecord): CandidateRow {
   return {
     id: candidate.id,
+    record: candidate,
     name: candidate.fullName,
     initials: getInitials(candidate.fullName),
     title: candidate.currentJobTitle,
@@ -297,7 +302,10 @@ function CandidateStatusActionsMenu({
     <div className="relative inline-flex">
       <button
         type="button"
-        onClick={onToggle}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
         className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
         style={{ borderColor: "#E2E8F0", color: "#0B1F4D", background: "#ffffff" }}
       >
@@ -321,7 +329,10 @@ function CandidateStatusActionsMenu({
                   key={action}
                   type="button"
                   disabled={updating}
-                  onClick={() => onSelect(action)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelect(action);
+                  }}
                   className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors"
                   style={{ color: "#0B1F4D", background: "transparent", cursor: updating ? "not-allowed" : "pointer" }}
                   onMouseEnter={(e) => {
@@ -347,7 +358,184 @@ function CandidateStatusActionsMenu({
   );
 }
 
+function formatEmploymentTypeLabels(
+  employmentType: string[] | undefined,
+  employmentTypeLabels: Record<string, string>,
+) {
+  if (!employmentType || employmentType.length === 0) return null;
+  return employmentType.map((value) => employmentTypeLabels[value] ?? value);
+}
+
+function buildCandidatesCsv(
+  items: CandidateRecord[],
+  employmentTypeLabels: Record<string, string>,
+) {
+  const csvFields = [
+    { key: "id", label: "ID", getValue: (candidate: CandidateRecord) => candidate.id },
+    { key: "fullName", label: "Full Name", getValue: (candidate: CandidateRecord) => candidate.fullName },
+    { key: "email", label: "Email", getValue: (candidate: CandidateRecord) => candidate.email },
+    { key: "mobileNumber", label: "Phone", getValue: (candidate: CandidateRecord) => candidate.mobileNumber },
+    { key: "nationality", label: "Nationality", getValue: (candidate: CandidateRecord) => candidate.nationality },
+    { key: "currentCountry", label: "Current Country", getValue: (candidate: CandidateRecord) => candidate.currentCountry },
+    { key: "currentCity", label: "Current City", getValue: (candidate: CandidateRecord) => candidate.currentCity },
+    { key: "currentJobTitle", label: "Job Title", getValue: (candidate: CandidateRecord) => candidate.currentJobTitle },
+    { key: "yearsOfExperience", label: "Years Of Experience", getValue: (candidate: CandidateRecord) => candidate.yearsOfExperience },
+    { key: "industry", label: "Industry", getValue: (candidate: CandidateRecord) => candidate.industry },
+    {
+      key: "employmentType",
+      label: "Employment Type",
+      getValue: (candidate: CandidateRecord) => formatEmploymentTypeLabels(candidate.employmentType, employmentTypeLabels)?.join(", "),
+    },
+    { key: "preferredWorkCountry", label: "Preferred Work Country", getValue: (candidate: CandidateRecord) => candidate.preferredWorkCountry },
+    { key: "englishLevel", label: "English Level", getValue: (candidate: CandidateRecord) => candidate.englishLevel },
+    { key: "availableToRelocate", label: "Available To Relocate", getValue: (candidate: CandidateRecord) => candidate.availableToRelocate },
+    { key: "linkedinProfile", label: "LinkedIn Profile", getValue: (candidate: CandidateRecord) => candidate.linkedinProfile },
+    { key: "additionalNotes", label: "Additional Notes", getValue: (candidate: CandidateRecord) => candidate.additionalNotes },
+    { key: "status", label: "Status", getValue: (candidate: CandidateRecord) => normalizeStatus(candidate.status) },
+    { key: "createdAt", label: "Created At", getValue: (candidate: CandidateRecord) => candidate.createdAt ?? "" },
+  ] as const;
+
+  const includedFields = csvFields.filter((field) =>
+    field.key === "id" ||
+    field.key === "fullName" ||
+    items.some((candidate) => {
+      const value = field.getValue(candidate);
+      return value !== undefined && value !== null && String(value).trim() !== "";
+    }),
+  );
+
+  const header = includedFields.map((field) => field.label);
+  const rows = items.map((candidate) => includedFields.map((field) => field.getValue(candidate) ?? ""));
+
+  return [header, ...rows].map((row) => row.map(toCsvValue).join(",")).join("\n");
+}
+
+function CandidateDetailField({ label, value }: { label: string; value?: string | null }) {
+  if (!value) return null;
+
+  return (
+    <div className="grid gap-1.5 rounded-xl bg-[#F8FAFC] px-4 py-3">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "#94A3B8" }}>
+        {label}
+      </span>
+      <span className="text-sm leading-6" style={{ color: "#0F172A" }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function CandidateDetailSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  const content = Array.isArray(children) ? children.filter(Boolean) : children;
+
+  if (!content || (Array.isArray(content) && content.length === 0)) {
+    return null;
+  }
+
+  return (
+    <section className="grid gap-3">
+      <h3 className="text-sm font-bold uppercase tracking-[0.08em]" style={{ color: "#0B1F4D" }}>
+        {title}
+      </h3>
+      <div className="grid gap-3">{content}</div>
+    </section>
+  );
+}
+
+function CandidateDetailsPanel({
+  candidate,
+  downloading,
+  onDownloadCv,
+  employmentTypeLabels,
+}: {
+  candidate: CandidateRecord;
+  downloading: boolean;
+  onDownloadCv: () => void;
+  employmentTypeLabels: Record<string, string>;
+}) {
+  const employmentTypeValues = formatEmploymentTypeLabels(candidate.employmentType, employmentTypeLabels);
+
+  return (
+    <div className="grid gap-6 px-4 pb-6 md:px-6 md:pb-8">
+      <CandidateDetailSection title="Personal Information">
+        <CandidateDetailField label="Full Name" value={candidate.fullName} />
+        <CandidateDetailField label="Email" value={candidate.email} />
+        <CandidateDetailField label="Phone" value={candidate.mobileNumber} />
+        <CandidateDetailField label="Nationality" value={candidate.nationality} />
+        <CandidateDetailField label="Current Country" value={candidate.currentCountry} />
+        <CandidateDetailField label="Current City" value={candidate.currentCity} />
+      </CandidateDetailSection>
+
+      <CandidateDetailSection title="Professional Information">
+        <CandidateDetailField label="Job Title" value={candidate.currentJobTitle} />
+        <CandidateDetailField label="Years of Experience" value={candidate.yearsOfExperience} />
+        <CandidateDetailField label="Industry" value={candidate.industry} />
+        <CandidateDetailField label="Expected Salary" value={candidate.expectedSalary} />
+        {employmentTypeValues && employmentTypeValues.length > 0 ? (
+          <div className="grid gap-1.5 rounded-xl bg-[#F8FAFC] px-4 py-3">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "#94A3B8" }}>
+              Employment Type
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {employmentTypeValues.map((value) => (
+                <span
+                  key={value}
+                  className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+                  style={{ background: "#EFF6FF", color: "#1D4ED8" }}
+                >
+                  {value}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <CandidateDetailField label="Status" value={normalizeStatus(candidate.status)} />
+      </CandidateDetailSection>
+
+      <CandidateDetailSection title="Additional Information">
+        <CandidateDetailField label="Preferred Work Country" value={candidate.preferredWorkCountry} />
+        <CandidateDetailField label="English Level" value={candidate.englishLevel} />
+        <CandidateDetailField label="Available To Relocate" value={candidate.availableToRelocate} />
+        <CandidateDetailField label="LinkedIn Profile" value={candidate.linkedinProfile} />
+        <CandidateDetailField label="Additional Notes" value={candidate.additionalNotes} />
+        <CandidateDetailField label="Submitted At" value={candidate.createdAt} />
+      </CandidateDetailSection>
+
+      <CandidateDetailSection title="Documents">
+        <div className="grid gap-3 rounded-xl bg-[#F8FAFC] px-4 py-4">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "#94A3B8" }}>
+            CV / Resume
+          </span>
+          <button
+            type="button"
+            onClick={onDownloadCv}
+            disabled={downloading}
+            className="inline-flex w-fit items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
+            style={{
+              borderColor: "#E2E8F0",
+              color: "#0B1F4D",
+              background: "#FFFFFF",
+              cursor: downloading ? "not-allowed" : "pointer",
+            }}
+          >
+            <Download size={14} />
+            {downloading ? "Downloading..." : "Download CV"}
+          </button>
+        </div>
+      </CandidateDetailSection>
+    </div>
+  );
+}
+
 export default function AdminTalentPage() {
+  const { talentNetwork } = useTranslation();
+  const isMobile = useIsMobile();
   const [search, setSearch] = useState("");
   const [industry, setIndustry] = useState("");
   const [expLevel, setExpLevel] = useState("");
@@ -362,6 +550,15 @@ export default function AdminTalentPage() {
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [statusActionMenuId, setStatusActionMenuId] = useState<number | null>(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<CandidateRecord | null>(null);
+
+  const employmentTypeLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        talentNetwork.step2.employmentOptions.map((option) => [option.value, option.label]),
+      ),
+    [talentNetwork.step2.employmentOptions],
+  );
 
   const hasFilters = Boolean(industry || expLevel || location || statusFilter || search);
 
@@ -454,7 +651,7 @@ export default function AdminTalentPage() {
     setExporting(true);
 
     try {
-      const csv = buildCandidatesCsv(allCandidates);
+      const csv = buildCandidatesCsv(allCandidates, employmentTypeLabels);
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -521,6 +718,10 @@ export default function AdminTalentPage() {
     } finally {
       setStatusUpdatingId(null);
     }
+  };
+
+  const closeCandidateDetails = () => {
+    setSelectedCandidate(null);
   };
 
   return (
@@ -645,6 +846,7 @@ export default function AdminTalentPage() {
                     <tr
                       key={candidate.id}
                       style={{ borderBottom: index < rows.length - 1 ? "1px solid #F1F5F9" : "none" }}
+                      onClick={() => setSelectedCandidate(candidate.record)}
                       onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#FAFBFC")}
                       onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}
                     >
@@ -654,7 +856,17 @@ export default function AdminTalentPage() {
                             {candidate.initials}
                           </div>
                           <div>
-                            <div className="text-sm font-semibold" style={{ color: "#0B1F4D" }}>{candidate.name}</div>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedCandidate(candidate.record);
+                              }}
+                              className="text-left text-sm font-semibold"
+                              style={{ color: "#0B1F4D" }}
+                            >
+                              {candidate.name}
+                            </button>
                             <div className="text-xs" style={{ color: "#94A3B8" }}>ID #{String(candidate.id).padStart(4, "0")}</div>
                           </div>
                         </div>
@@ -670,7 +882,29 @@ export default function AdminTalentPage() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedCandidate(candidate.record);
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
+                            style={{ borderColor: "#E2E8F0", color: "#0B1F4D", cursor: "pointer" }}
+                            onMouseEnter={(e) => {
+                              (e.currentTarget as HTMLElement).style.background = "#0B1F4D";
+                              (e.currentTarget as HTMLElement).style.color = "#ffffff";
+                              (e.currentTarget as HTMLElement).style.borderColor = "#0B1F4D";
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.currentTarget as HTMLElement).style.background = "transparent";
+                              (e.currentTarget as HTMLElement).style.color = "#0B1F4D";
+                              (e.currentTarget as HTMLElement).style.borderColor = "#E2E8F0";
+                            }}
+                          >
+                            View Details
+                          </button>
+                          <button
                             onClick={() => void handleDownloadCv(candidate.id)}
+                            onClickCapture={(event) => event.stopPropagation()}
                             disabled={downloadingId === candidate.id}
                             className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
                             style={{ borderColor: "#E2E8F0", color: "#0B1F4D", cursor: downloadingId === candidate.id ? "not-allowed" : "pointer" }}
@@ -756,6 +990,62 @@ export default function AdminTalentPage() {
           </div>
         </div>
       </div>
+
+      {selectedCandidate ? (
+        isMobile ? (
+          <Drawer open={Boolean(selectedCandidate)} onOpenChange={(open) => { if (!open) closeCandidateDetails(); }}>
+            <DrawerContent className="h-[100svh] max-h-[100svh]">
+              <DrawerHeader className="shrink-0 border-b" style={{ borderColor: "#E2E8F0" }}>
+                <DrawerTitle>{selectedCandidate.fullName}</DrawerTitle>
+                <DrawerDescription className="space-y-1">
+                  <span className="block">{selectedCandidate.currentJobTitle}</span>
+                  <span className="block">
+                    {STATUS_CONFIG[normalizeStatus(selectedCandidate.status)].label}
+                    {formatCandidateSubmissionDate(selectedCandidate.createdAt) ? ` • Submitted ${formatCandidateSubmissionDate(selectedCandidate.createdAt)}` : ""}
+                  </span>
+                </DrawerDescription>
+              </DrawerHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="px-4 pt-4">
+                  <StatusBadge status={normalizeStatus(selectedCandidate.status)} />
+                </div>
+                <CandidateDetailsPanel
+                  candidate={selectedCandidate}
+                  downloading={downloadingId === selectedCandidate.id}
+                  employmentTypeLabels={employmentTypeLabels}
+                  onDownloadCv={() => void handleDownloadCv(selectedCandidate.id)}
+                />
+              </div>
+            </DrawerContent>
+          </Drawer>
+        ) : (
+          <Sheet open={Boolean(selectedCandidate)} onOpenChange={(open) => { if (!open) closeCandidateDetails(); }}>
+            <SheetContent side="right" className="h-screen w-full sm:max-w-xl">
+              <SheetHeader className="shrink-0 border-b" style={{ borderColor: "#E2E8F0" }}>
+                <SheetTitle>{selectedCandidate.fullName}</SheetTitle>
+                <SheetDescription className="space-y-1">
+                  <span className="block">{selectedCandidate.currentJobTitle}</span>
+                  <span className="block">
+                    {STATUS_CONFIG[normalizeStatus(selectedCandidate.status)].label}
+                    {formatCandidateSubmissionDate(selectedCandidate.createdAt) ? ` • Submitted ${formatCandidateSubmissionDate(selectedCandidate.createdAt)}` : ""}
+                  </span>
+                </SheetDescription>
+              </SheetHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="px-6 pt-4">
+                  <StatusBadge status={normalizeStatus(selectedCandidate.status)} />
+                </div>
+                <CandidateDetailsPanel
+                  candidate={selectedCandidate}
+                  downloading={downloadingId === selectedCandidate.id}
+                  employmentTypeLabels={employmentTypeLabels}
+                  onDownloadCv={() => void handleDownloadCv(selectedCandidate.id)}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+        )
+      ) : null}
     </AdminLayout>
   );
 }

@@ -11,7 +11,7 @@ export type TalentNetworkSubmissionPayload = {
   YearsOfExperience: string;
   Industry: string;
   ExpectedSalary: string;
-  EmploymentType: string;
+  EmploymentType: string[];
   PreferredWorkCountry: string;
   EnglishLevel: string;
   AvailableToRelocate: string;
@@ -35,7 +35,7 @@ export async function submitTalentNetworkApplication(
   formData.append("YearsOfExperience", payload.YearsOfExperience);
   formData.append("Industry", payload.Industry);
   formData.append("ExpectedSalary", payload.ExpectedSalary);
-  formData.append("EmploymentType", payload.EmploymentType);
+  formData.append("EmploymentType", JSON.stringify(payload.EmploymentType));
   formData.append("PreferredWorkCountry", payload.PreferredWorkCountry);
   formData.append("EnglishLevel", payload.EnglishLevel);
   formData.append("AvailableToRelocate", payload.AvailableToRelocate);

@@ -279,6 +279,14 @@ const services: ServiceCard[] = [
   },
 ];
 
+const servicePageRoutes = [
+  "/services/operations-management",
+  "/services/remote-workforce",
+  "/services/recruitment",
+  "/services/project-based-hiring",
+  "/services/strategic-consulting",
+] as const;
+
 const processSteps: ProcessStep[] = [
   {
     number: "01",
@@ -932,6 +940,26 @@ export default function JhcLandingPage() {
     elements.forEach((element) => observer.observe(element));
 
     return () => observer.disconnect();
+  }, [language]);
+
+  useEffect(() => {
+    if (window.location.hash !== "#services") return;
+
+    const scrollToServices = () => {
+      const servicesSection = document.getElementById("services");
+      if (!(servicesSection instanceof HTMLElement)) return;
+
+      servicesSection.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    };
+
+    const frameId = window.requestAnimationFrame(scrollToServices);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, [language]);
 
   const handleNavClick = (href: NavSection["href"]) => (event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -1940,10 +1968,10 @@ export default function JhcLandingPage() {
                   </div>
                   <h3 className={["mt-4 text-[16px] font-bold leading-6 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
                   <p className={["mt-2 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
-                  <a className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#2563eb]" href="#contact" style={isArabic ? heroArabicFontStyle : undefined}>
+                  <Link className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined} to={servicePageRoutes[index]}>
                     {servicesCopy.cardCta}
                     {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
-                  </a>
+                  </Link>
                 </div>
               ))}
 
@@ -2005,10 +2033,10 @@ export default function JhcLandingPage() {
                 </div>
                 <h3 className={["mt-6 text-[16px] font-bold leading-6 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
                 <p className={["mt-2 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
-                <a className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#2563eb]" href="#contact" style={isArabic ? heroArabicFontStyle : undefined}>
+                <Link className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined} to={servicePageRoutes[index]}>
                   {servicesCopy.cardCta}
                   {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
-                </a>
+                </Link>
               </div>
             ))}
             <div className={["flex min-h-[184px] flex-col items-center justify-center gap-4 px-8 py-7 text-center", isArabic ? "border-l border-[#e2e8f0]" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>

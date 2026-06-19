@@ -27,10 +27,20 @@ export type CandidateRecord = {
   id: number;
   fullName: string;
   email: string;
+  mobileNumber?: string;
+  nationality?: string;
   currentJobTitle: string;
   yearsOfExperience: string;
   industry: string;
   currentCountry: string;
+  currentCity?: string;
+  expectedSalary?: string;
+  employmentType?: string[];
+  preferredWorkCountry?: string;
+  englishLevel?: string;
+  availableToRelocate?: string;
+  linkedinProfile?: string;
+  additionalNotes?: string;
   status: string;
   createdAt: string | null;
 };
@@ -47,17 +57,52 @@ export type CandidateStats = {
 
 export type CandidateStatus = "New" | "Reviewed" | "Shortlisted" | "Interview" | "Hired" | "Rejected";
 
+function normalizeEmploymentType(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+      }
+    } catch {
+      return [value];
+    }
+
+    return [value];
+  }
+
+  return undefined;
+}
+
 function normalizeCandidate(item: unknown, index: number): CandidateRecord {
   const record = getObjectCandidate(item);
+  const normalizedEmploymentType =
+    normalizeEmploymentType(record?.employmentType) ??
+    normalizeEmploymentType(record?.employmentTypes) ??
+    normalizeEmploymentType(record?.preferredEmploymentType);
 
   return {
     id: getNumberValue(record, ["id", "candidateId"]) ?? index + 1,
     fullName: getStringValue(record, ["fullName", "name"]) ?? "Unknown Candidate",
     email: getStringValue(record, ["email"]) ?? "",
+    mobileNumber: getStringValue(record, ["mobileNumber", "phone", "phoneNumber"]),
+    nationality: getStringValue(record, ["nationality"]),
     currentJobTitle: getStringValue(record, ["currentJobTitle", "jobTitle", "title"]) ?? "Not specified",
     yearsOfExperience: getStringValue(record, ["yearsOfExperience", "experience", "experienceYears"]) ?? "Not specified",
     industry: getStringValue(record, ["industry"]) ?? "",
     currentCountry: getStringValue(record, ["currentCountry", "country", "preferredWorkCountry"]) ?? "Not specified",
+    currentCity: getStringValue(record, ["currentCity", "city"]),
+    expectedSalary: getStringValue(record, ["expectedSalary"]),
+    employmentType: normalizedEmploymentType,
+    preferredWorkCountry: getStringValue(record, ["preferredWorkCountry", "preferredCountry"]),
+    englishLevel: getStringValue(record, ["englishLevel", "englishProficiency"]),
+    availableToRelocate: getStringValue(record, ["availableToRelocate"]),
+    linkedinProfile: getStringValue(record, ["linkedInProfile", "linkedinProfile", "linkedinUrl", "linkedInUrl"]),
+    additionalNotes: getStringValue(record, ["additionalNotes", "notes"]),
     status: getStringValue(record, ["status"]) ?? "New",
     createdAt:
       getStringValue(record, ["createdAt", "createdOn", "submittedAt", "applicationDate", "dateCreated"]) ?? null,
