@@ -5,8 +5,10 @@ import {
   ArrowLeft,
   ArrowRight,
   BadgeCheck,
+  BookOpen,
   BriefcaseBusiness,
   Building2,
+  CalendarDays,
   CheckCircle2,
   CircleDollarSign,
   Facebook,
@@ -19,6 +21,7 @@ import {
   Menu,
   MapPin,
   Phone,
+  SearchX,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -36,8 +39,10 @@ import CountUp from "../../app/components/CountUp";
 import { useTranslation } from "../../app/hooks/useTranslation";
 import { useLanguage } from "../../app/providers/LanguageProvider";
 import { translations } from "../../locales";
+import { getPublicArticles, type ArticleRecord } from "../../services/api/articlesApi";
 import { submitContactForm } from "../../services/api/contactApi";
-import { getAxiosErrorMessage } from "../../services/api/utils";
+import { getPublicJobs, type JobRecord } from "../../services/api/jobsApi";
+import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
 
 type Metric = {
   value: string;
@@ -104,6 +109,7 @@ type OfficeLocation = {
 };
 
 type ContactFormFieldKey = "fullName" | "company" | "phone" | "email";
+type LandingResourceState = "idle" | "loading" | "success" | "empty" | "error";
 
 const LANDING_ICON_MAP: Record<string, LucideIcon> = {
   ArrowRight,
@@ -612,6 +618,52 @@ function getArabicMarqueePhrases(items: readonly string[]) {
   return phrases;
 }
 
+function formatLandingDate(value: string | null, locale: "en" | "ar") {
+  if (!value) return locale === "ar" ? "حديثاً" : "Recently published";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return locale === "ar" ? "حديثاً" : "Recently published";
+
+  return new Intl.DateTimeFormat(locale === "ar" ? "ar-EG" : "en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function getArticleDateValue(article: ArticleRecord) {
+  return article.publishedAt ?? article.createdAt ?? article.updatedAt;
+}
+
+function getJobDateValue(job: JobRecord) {
+  return job.createdAt ?? job.updatedAt ?? job.applicationDeadline;
+}
+
+function sortByNewest<T>(items: T[], getDateValue: (item: T) => string | null) {
+  return [...items].sort((left, right) => {
+    const leftTime = getDateValue(left) ? new Date(getDateValue(left) as string).getTime() : 0;
+    const rightTime = getDateValue(right) ? new Date(getDateValue(right) as string).getTime() : 0;
+    return rightTime - leftTime;
+  });
+}
+
+function LandingContentSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <div className="grid gap-4 md:grid-cols-3">
+      {Array.from({ length: count }).map((_, index) => (
+        <div key={index} className="overflow-hidden rounded-[18px] border border-[#e2e8f0] bg-white">
+          <div className="h-36 animate-pulse bg-[#e2e8f0]" />
+          <div className="space-y-3 p-5">
+            <div className="h-3 w-24 animate-pulse rounded-full bg-[#e2e8f0]" />
+            <div className="h-5 animate-pulse rounded bg-[#e2e8f0]" />
+            <div className="h-4 w-5/6 animate-pulse rounded bg-[#f1f5f9]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function JhcLandingPage() {
   const { landing } = useTranslation();
   const { language, setLanguage } = useLanguage();
@@ -664,6 +716,10 @@ export default function JhcLandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFooterSection, setOpenFooterSection] = useState<FooterAccordionSection | null>(null);
   const [activeTestimonialIndex, setActiveTestimonialIndex] = useState(0);
+  const [latestArticles, setLatestArticles] = useState<ArticleRecord[]>([]);
+  const [articlesState, setArticlesState] = useState<LandingResourceState>("idle");
+  const [openJobs, setOpenJobs] = useState<JobRecord[]>([]);
+  const [jobsState, setJobsState] = useState<LandingResourceState>("idle");
 
   const contactFieldKeys: ContactFormFieldKey[] = ["fullName", "company", "phone", "email"];
   const subtleButtonHoverClassName = "subtle-button-hover";
@@ -762,6 +818,70 @@ export default function JhcLandingPage() {
 
     frameId = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frameId);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadLatestArticles = async () => {
+      setArticlesState("loading");
+
+      try {
+        const result = await getPublicArticles(
+          { isPublished: true, pageNumber: 1, pageSize: 6 },
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+
+        const publishedArticles = sortByNewest(
+          result.items.filter((article) => article.isPublished),
+          getArticleDateValue,
+        ).slice(0, 3);
+
+        setLatestArticles(publishedArticles);
+        setArticlesState(publishedArticles.length > 0 ? "success" : "empty");
+      } catch (requestError) {
+        if (isRequestCanceled(requestError) || controller.signal.aborted) return;
+        setLatestArticles([]);
+        setArticlesState("error");
+      }
+    };
+
+    void loadLatestArticles();
+
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadOpenJobs = async () => {
+      setJobsState("loading");
+
+      try {
+        const result = await getPublicJobs(
+          { status: "Published", pageNumber: 1, pageSize: 6 },
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+
+        const publishedJobs = sortByNewest(
+          result.items.filter((job) => job.status === "Published" || job.status === undefined),
+          getJobDateValue,
+        ).slice(0, 3);
+
+        setOpenJobs(publishedJobs);
+        setJobsState(publishedJobs.length > 0 ? "success" : "empty");
+      } catch (requestError) {
+        if (isRequestCanceled(requestError) || controller.signal.aborted) return;
+        setOpenJobs([]);
+        setJobsState("error");
+      }
+    };
+
+    void loadOpenJobs();
+
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -2221,6 +2341,199 @@ export default function JhcLandingPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+          <div className="mx-4 overflow-hidden rounded-[24px] border border-[#dbe3f0] bg-white md:mx-0">
+            <div className="grid gap-0 lg:grid-cols-[0.96fr_1.04fr]">
+              <div className="bg-[#0b1f4d] px-6 py-8 text-white md:px-10 md:py-12">
+                <div className={isArabic ? "text-right" : ""} dir={isArabic ? "rtl" : "ltr"}>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[1.4px] text-[#93c5fd]">
+                    <BookOpen size={13} />
+                    {isArabic ? "مكتبة JHC" : "JHC Insights"}
+                  </div>
+                  <h2 className="mt-5 text-[34px] font-extrabold leading-[40px] tracking-[-1.1px] md:text-[44px] md:leading-[50px]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "أحدث المقالات والرؤى" : "Latest Articles"}
+                  </h2>
+                  <p className="mt-4 max-w-[470px] text-[15px] leading-[26px] text-[#cbd5e1]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic
+                      ? "مختارات حديثة من رؤى JHC حول رأس المال البشري، نماذج التشغيل، وسوق العمل في الخليج."
+                      : "Fresh JHC perspectives on human capital, operating models, and workforce growth across the GCC."}
+                  </p>
+                  <Link
+                    className="mt-7 inline-flex h-11 items-center gap-3 rounded-[16px] bg-[#2563eb] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_12px_30px_rgba(37,99,235,0.32)]"
+                    to="/articles"
+                    style={isArabic ? heroArabicFontStyle : undefined}
+                  >
+                    {isArabic ? "عرض كل المقالات" : "View all articles"}
+                    {isArabic ? <ArrowLeft size={13} /> : <ArrowRight size={13} />}
+                  </Link>
+                </div>
+              </div>
+
+              <div className="bg-[#f8fafc] p-4 md:p-6">
+                {articlesState === "loading" || articlesState === "idle" ? (
+                  <LandingContentSkeleton />
+                ) : articlesState === "error" ? (
+                  <div className="flex min-h-[270px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-white px-6 text-center">
+                    <SearchX size={24} className="text-[#2563eb]" />
+                    <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                      {isArabic ? "تعذر تحميل المقالات الآن" : "Articles are unavailable right now"}
+                    </p>
+                    <p className="mt-2 max-w-[360px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                      {isArabic ? "يمكنك المتابعة في الصفحة، أو زيارة مكتبة المقالات لاحقاً." : "You can continue browsing the site or visit the articles library later."}
+                    </p>
+                  </div>
+                ) : articlesState === "empty" ? (
+                  <div className="flex min-h-[270px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-white px-6 text-center">
+                    <BookOpen size={24} className="text-[#2563eb]" />
+                    <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                      {isArabic ? "لا توجد مقالات منشورة حالياً" : "No published articles yet"}
+                    </p>
+                    <p className="mt-2 max-w-[340px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                      {isArabic ? "ستظهر أحدث المقالات هنا عند نشرها." : "Latest published articles will appear here once available."}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-3">
+                    {latestArticles.map((article) => (
+                      <Link
+                        key={article.id}
+                        className={`${cardHoverClassName} group overflow-hidden rounded-[18px] border border-[#e2e8f0] bg-white shadow-[0_14px_34px_rgba(15,23,42,0.04)] transition-colors hover:border-[#bfdbfe]`}
+                        to={`/articles/${article.slug}`}
+                      >
+                        <div className="relative h-36 overflow-hidden bg-[#e2e8f0]">
+                          {article.coverImageUrl ? (
+                            <img
+                              alt=""
+                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                              src={article.coverImageUrl}
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#eff6ff,#f8fafc)]">
+                              <img alt="" className="h-10 w-auto opacity-65" src={logo} />
+                            </div>
+                          )}
+                        </div>
+                        <div className={["p-5", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
+                          <div className="flex items-center gap-2 text-[11px] font-semibold text-[#64748b]">
+                            <CalendarDays size={12} className="text-[#2563eb]" />
+                            <span>{formatLandingDate(getArticleDateValue(article), language)}</span>
+                          </div>
+                          <h3 className="mt-3 line-clamp-2 text-[17px] font-extrabold leading-[23px] tracking-[-0.35px] text-[#0b1f4d] transition-colors group-hover:text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
+                            {article.title}
+                          </h3>
+                          <p className="mt-2 line-clamp-3 text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                            {article.summary}
+                          </p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+          <div className="mx-4 rounded-[24px] border border-[#dbe3f0] bg-white px-6 py-8 md:mx-0 md:px-10 md:py-12">
+            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between" dir={isArabic ? "rtl" : "ltr"}>
+              <div className={isArabic ? "text-right" : ""}>
+                <p className="inline-flex items-center gap-2 text-[14px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  <BriefcaseBusiness size={15} />
+                  {isArabic ? "نحن نوظف" : "We're Hiring"}
+                </p>
+                <h2 className="mt-4 text-[34px] font-extrabold leading-[40px] tracking-[-1.1px] text-[#0b1f4d] md:text-[46px] md:leading-[50px]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {isArabic ? "فرص مفتوحة مع JHC" : "Open Positions"}
+                </h2>
+                <p className="mt-4 max-w-[620px] text-[15px] leading-[26px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {isArabic
+                    ? "تصفح أحدث الفرص المنشورة وانضم إلى فرق تساعد الشركات على بناء نماذج تشغيل أقوى."
+                    : "Explore the latest published roles and join teams helping businesses build stronger operating models."}
+                </p>
+              </div>
+              <Link
+                className="inline-flex h-11 w-fit items-center gap-3 rounded-[16px] bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_12px_28px_rgba(11,31,77,0.18)]"
+                to="/careers"
+                style={isArabic ? heroArabicFontStyle : undefined}
+              >
+                {isArabic ? "عرض كل الوظائف" : "View all positions"}
+                {isArabic ? <ArrowLeft size={13} /> : <ArrowRight size={13} />}
+              </Link>
+            </div>
+
+            <div className="mt-8">
+              {jobsState === "loading" || jobsState === "idle" ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] p-5">
+                      <div className="h-4 w-24 animate-pulse rounded bg-[#e2e8f0]" />
+                      <div className="mt-5 h-6 animate-pulse rounded bg-[#e2e8f0]" />
+                      <div className="mt-4 h-4 w-2/3 animate-pulse rounded bg-[#e2e8f0]" />
+                      <div className="mt-6 h-9 animate-pulse rounded-full bg-[#e2e8f0]" />
+                    </div>
+                  ))}
+                </div>
+              ) : jobsState === "error" ? (
+                <div className="flex min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] px-6 text-center">
+                  <SearchX size={24} className="text-[#2563eb]" />
+                  <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "تعذر تحميل الوظائف الآن" : "Open positions are unavailable right now"}
+                  </p>
+                  <p className="mt-2 max-w-[360px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "يمكنك زيارة صفحة الوظائف لاحقاً للاطلاع على الفرص المنشورة." : "Please visit the careers page later to view published opportunities."}
+                  </p>
+                </div>
+              ) : jobsState === "empty" ? (
+                <div className="flex min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] px-6 text-center">
+                  <BriefcaseBusiness size={24} className="text-[#2563eb]" />
+                  <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "لا توجد وظائف منشورة حالياً" : "No open positions right now"}
+                  </p>
+                  <p className="mt-2 max-w-[340px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "ستظهر أحدث الوظائف المنشورة هنا عند توفرها." : "Latest published jobs will appear here once available."}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-3">
+                  {openJobs.map((job) => (
+                    <Link
+                      key={job.id}
+                      className={`${cardHoverClassName} group flex min-h-[230px] flex-col rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] p-5 transition-colors hover:border-[#bfdbfe] hover:bg-white`}
+                      to={`/careers/${job.slug}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-1 text-[10px] font-bold uppercase tracking-[1.1px] text-[#2563eb]">
+                          {job.employmentType || (isArabic ? "فرصة عمل" : "Open role")}
+                        </span>
+                        <ArrowRight className={isArabic ? "rotate-180 text-[#94a3b8] transition-colors group-hover:text-[#2563eb]" : "text-[#94a3b8] transition-colors group-hover:text-[#2563eb]"} size={15} />
+                      </div>
+                      <h3 className={["mt-5 line-clamp-2 text-[20px] font-extrabold leading-[26px] tracking-[-0.45px] text-[#0b1f4d] transition-colors group-hover:text-[#2563eb]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
+                        {job.title}
+                      </h3>
+                      <p className={["mt-3 line-clamp-3 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
+                        {job.description}
+                      </p>
+                      <div className="mt-auto flex flex-wrap gap-2 pt-6" dir={isArabic ? "rtl" : "ltr"}>
+                        {job.location ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e2e8f0] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#64748b]">
+                            <MapPin size={12} className="text-[#2563eb]" />
+                            {job.location}
+                          </span>
+                        ) : null}
+                        {job.experienceLevel ? (
+                          <span className="inline-flex items-center rounded-full border border-[#e2e8f0] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#64748b]">
+                            {job.experienceLevel}
+                          </span>
+                        ) : null}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </section>

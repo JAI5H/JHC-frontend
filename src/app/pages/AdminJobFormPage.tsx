@@ -187,7 +187,7 @@ export default function AdminJobFormPage() {
   };
 
   const handleSave = async (statusOverride?: JobStatus) => {
-    if (!validate() || saving) return;
+    if (!validate() || saving || saved) return;
     setSaving(true);
     setSaved(false);
     setPageError("");
@@ -222,6 +222,7 @@ export default function AdminJobFormPage() {
   };
 
   const textareaSt: React.CSSProperties = { ...inputSt, resize: "vertical", lineHeight: 1.7 };
+  const formActionsDisabled = saving || saved;
 
   return (
     <AdminLayout title={isEdit ? "Edit Job" : "Create Job"}>
@@ -335,20 +336,20 @@ export default function AdminJobFormPage() {
               </div>
 
               <div className="flex flex-col gap-3 rounded-xl bg-white p-6" style={{ border: "1px solid #E2E8F0" }}>
-                <button type="button" onClick={() => void handleSave()} disabled={saving || saved} className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white" style={{ background: saving || saved ? "#94A3B8" : "#0B1F4D" }}>
+                <button type="button" onClick={() => void handleSave()} disabled={formActionsDisabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white" style={{ background: formActionsDisabled ? "#94A3B8" : "#0B1F4D" }}>
                   {saving ? "Saving..." : <><Save size={15} /> {isEdit ? "Save Changes" : "Save as Draft"}</>}
                 </button>
                 {targetStatus !== "Published" ? (
-                  <button type="button" onClick={() => { setTargetStatus("Published"); void handleSave("Published"); }} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#16A34A", color: "#16A34A" }}>
+                  <button type="button" onClick={() => { setTargetStatus("Published"); void handleSave("Published"); }} disabled={formActionsDisabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#16A34A", color: "#16A34A" }}>
                     <Globe size={15} /> Save & Publish
                   </button>
                 ) : (
-                  <button type="button" onClick={() => { setTargetStatus("Draft"); void handleSave("Draft"); }} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#D97706", color: "#D97706" }}>
+                  <button type="button" onClick={() => { setTargetStatus("Draft"); void handleSave("Draft"); }} disabled={formActionsDisabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#D97706", color: "#D97706" }}>
                     <EyeOff size={15} /> Move to Draft
                   </button>
                 )}
                 {targetStatus !== "Closed" ? (
-                  <button type="button" onClick={() => { setTargetStatus("Closed"); void handleSave("Closed"); }} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#DC2626", color: "#DC2626" }}>
+                  <button type="button" onClick={() => { setTargetStatus("Closed"); void handleSave("Closed"); }} disabled={formActionsDisabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#DC2626", color: "#DC2626" }}>
                     <Lock size={15} /> Save & Close
                   </button>
                 ) : null}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { AlertCircle, Edit3, FileText, Globe, Plus, Search, Trash2, EyeOff } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
@@ -13,6 +13,7 @@ import {
 import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
 
 type StatusFilter = "all" | "published" | "draft";
+const PAGE_SIZE = 10;
 
 function formatDate(value: string | null) {
   if (!value) return "Not published";
@@ -35,8 +36,11 @@ function StatusPill({ published }: { published: boolean }) {
 
 export default function AdminArticlesPage() {
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -44,37 +48,40 @@ export default function AdminArticlesPage() {
 
   const publishedCount = articles.filter((article) => article.isPublished).length;
   const draftCount = articles.length - publishedCount;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const filteredArticles = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    return articles.filter((article) => {
-      const matchesStatus =
-        status === "all" ||
-        (status === "published" && article.isPublished) ||
-        (status === "draft" && !article.isPublished);
-      const matchesSearch =
-        !normalizedSearch ||
-        article.title.toLowerCase().includes(normalizedSearch) ||
-        article.summary.toLowerCase().includes(normalizedSearch) ||
-        article.slug.toLowerCase().includes(normalizedSearch);
-      return matchesStatus && matchesSearch;
-    });
-  }, [articles, search, status]);
+  const getStatusParam = (currentStatus: StatusFilter) => {
+    if (currentStatus === "published") return true;
+    if (currentStatus === "draft") return false;
+    return undefined;
+  };
 
-  const loadArticles = async (signal?: AbortSignal) => {
+  const loadArticles = useCallback(async (signal?: AbortSignal, pageOverride?: number) => {
     if (!hasAdminAccessToken()) {
       setArticles([]);
+      setTotalCount(0);
       setIsLoading(false);
       return;
     }
 
+    const requestedPage = pageOverride ?? page;
     setIsLoading(true);
     setError("");
+    setArticles([]);
 
     try {
-      const result = await getAdminArticles({ pageNumber: 1, pageSize: 100 }, { signal });
+      const result = await getAdminArticles(
+        {
+          search: search.trim() || undefined,
+          isPublished: getStatusParam(status),
+          pageNumber: requestedPage,
+          pageSize: PAGE_SIZE,
+        },
+        { signal },
+      );
       if (signal?.aborted) return;
       setArticles(result.items);
+      setTotalCount(result.totalCount);
     } catch (requestError) {
       if (isRequestCanceled(requestError) || signal?.aborted) return;
       setError(getAxiosErrorMessage(requestError, "Unable to load articles right now."));
@@ -83,13 +90,33 @@ export default function AdminArticlesPage() {
         setIsLoading(false);
       }
     }
-  };
+  }, [page, search, status]);
 
   useEffect(() => {
     const controller = new AbortController();
     void loadArticles(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [loadArticles]);
+
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSearch(searchInput.trim());
+    setPage(1);
+  };
+
+  const handleStatusChange = (nextStatus: StatusFilter) => {
+    setStatus(nextStatus);
+    setPage(1);
+  };
+
+  const refreshAfterMutation = async (wasLastItemOnPage = false) => {
+    if (wasLastItemOnPage && page > 1) {
+      setPage((current) => Math.max(1, current - 1));
+      return;
+    }
+
+    await loadArticles(undefined);
+  };
 
   const handleTogglePublish = async (article: ArticleRecord) => {
     setActionId(article.id);
@@ -101,13 +128,7 @@ export default function AdminArticlesPage() {
       } else {
         await publishArticle(article.id);
       }
-      setArticles((current) =>
-        current.map((item) =>
-          item.id === article.id
-            ? { ...item, isPublished: !article.isPublished, publishedAt: article.isPublished ? null : new Date().toISOString() }
-            : item,
-        ),
-      );
+      await refreshAfterMutation(status !== "all" && articles.length === 1);
       setFeedback(article.isPublished ? "Article moved to draft." : "Article published successfully.");
     } catch (requestError) {
       setError(getAxiosErrorMessage(requestError, "Unable to update article status right now."));
@@ -123,7 +144,7 @@ export default function AdminArticlesPage() {
     setFeedback("");
     try {
       await deleteArticle(article.id);
-      setArticles((current) => current.filter((item) => item.id !== article.id));
+      await refreshAfterMutation(articles.length === 1);
       setFeedback("Article deleted successfully.");
     } catch (requestError) {
       setError(getAxiosErrorMessage(requestError, "Unable to delete article right now."));
@@ -151,9 +172,9 @@ export default function AdminArticlesPage() {
 
         <div className="grid gap-4 sm:grid-cols-3">
           {[
-            { label: "Total Articles", value: articles.length, color: "#0B1F4D" },
-            { label: "Published", value: publishedCount, color: "#16A34A" },
-            { label: "Drafts", value: draftCount, color: "#D97706" },
+            { label: status === "all" ? "Total Articles" : "Matching Articles", value: totalCount, color: "#0B1F4D" },
+            { label: "Published on Page", value: publishedCount, color: "#16A34A" },
+            { label: "Drafts on Page", value: draftCount, color: "#D97706" },
           ].map((metric) => (
             <div key={metric.label} className="rounded-xl bg-white p-5" style={{ border: "1px solid #E2E8F0" }}>
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#94A3B8" }}>{metric.label}</div>
@@ -178,19 +199,28 @@ export default function AdminArticlesPage() {
 
         <div className="rounded-xl bg-white" style={{ border: "1px solid #E2E8F0" }}>
           <div className="flex flex-col gap-3 border-b px-5 py-4 md:flex-row md:items-center" style={{ borderColor: "#E2E8F0" }}>
-            <div className="relative flex-1">
+            <form onSubmit={handleSearchSubmit} className="flex flex-1 gap-2">
+              <div className="relative flex-1">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
               <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
                 placeholder="Search articles..."
                 className="w-full rounded-lg py-2 pl-9 pr-3 text-sm outline-none"
                 style={{ border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#0F172A" }}
               />
-            </div>
+              </div>
+              <button
+                type="submit"
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                style={{ background: "#0B1F4D" }}
+              >
+                Search
+              </button>
+            </form>
             <select
               value={status}
-              onChange={(event) => setStatus(event.target.value as StatusFilter)}
+              onChange={(event) => handleStatusChange(event.target.value as StatusFilter)}
               className="rounded-lg px-3 py-2 text-sm outline-none"
               style={{ border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#0F172A" }}
             >
@@ -202,7 +232,7 @@ export default function AdminArticlesPage() {
 
           {isLoading ? (
             <div className="px-6 py-16 text-center text-sm" style={{ color: "#94A3B8" }}>Loading articles...</div>
-          ) : filteredArticles.length === 0 ? (
+          ) : articles.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
               <FileText size={28} style={{ color: "#94A3B8" }} />
               <div>
@@ -221,8 +251,8 @@ export default function AdminArticlesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredArticles.map((article, index) => (
-                    <tr key={article.id} style={{ borderBottom: index < filteredArticles.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                  {articles.map((article, index) => (
+                    <tr key={article.id} style={{ borderBottom: index < articles.length - 1 ? "1px solid #F1F5F9" : "none" }}>
                       <td className="max-w-[520px] px-5 py-4">
                         <div className="font-semibold" style={{ color: "#0B1F4D" }}>{article.title}</div>
                         <div className="mt-1 truncate text-xs" style={{ color: "#64748B" }}>{article.summary}</div>
@@ -263,6 +293,34 @@ export default function AdminArticlesPage() {
               </table>
             </div>
           )}
+
+          {!isLoading && totalCount > 0 ? (
+            <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#E2E8F0" }}>
+              <div className="text-sm" style={{ color: "#64748B" }}>
+                Page {page} of {totalPages} · {totalCount} article{totalCount === 1 ? "" : "s"}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1 || isLoading || actionId !== null}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  className="rounded-lg border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages || isLoading || actionId !== null}
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  className="rounded-lg border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </AdminLayout>

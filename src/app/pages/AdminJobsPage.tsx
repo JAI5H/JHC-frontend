@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { AlertCircle, BriefcaseBusiness, Edit3, EyeOff, Lock, Plus, Search, Trash2, Users } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
@@ -19,6 +19,7 @@ const STATUS_COLORS: Record<JobStatus, { bg: string; text: string; border: strin
   Published: { bg: "#F0FDF4", text: "#16A34A", border: "#BBF7D0" },
   Closed: { bg: "#FEF2F2", text: "#DC2626", border: "#FCA5A5" },
 };
+const PAGE_SIZE = 10;
 
 function formatDate(value: string | null) {
   if (!value) return "No deadline";
@@ -39,47 +40,50 @@ function StatusPill({ status }: { status: JobStatus }) {
 
 export default function AdminJobsPage() {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<JobStatus | "all">("all");
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [actionId, setActionId] = useState<number | null>(null);
 
-  const filteredJobs = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    return jobs.filter((job) => {
-      const matchesStatus = status === "all" || job.status === status;
-      const matchesSearch =
-        !normalizedSearch ||
-        job.title.toLowerCase().includes(normalizedSearch) ||
-        job.location.toLowerCase().includes(normalizedSearch) ||
-        job.slug.toLowerCase().includes(normalizedSearch);
-      return matchesStatus && matchesSearch;
-    });
-  }, [jobs, search, status]);
-
   const counts = {
-    all: jobs.length,
+    all: totalCount,
     published: jobs.filter((job) => job.status === "Published").length,
     draft: jobs.filter((job) => job.status === "Draft").length,
     closed: jobs.filter((job) => job.status === "Closed").length,
   };
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const loadJobs = async (signal?: AbortSignal) => {
+  const loadJobs = useCallback(async (signal?: AbortSignal, pageOverride?: number) => {
     if (!hasAdminAccessToken()) {
       setJobs([]);
+      setTotalCount(0);
       setIsLoading(false);
       return;
     }
 
+    const requestedPage = pageOverride ?? page;
     setIsLoading(true);
     setError("");
+    setJobs([]);
 
     try {
-      const result = await getAdminJobs({ pageNumber: 1, pageSize: 100 }, { signal });
+      const result = await getAdminJobs(
+        {
+          search: search.trim() || undefined,
+          status: status === "all" ? undefined : status,
+          pageNumber: requestedPage,
+          pageSize: PAGE_SIZE,
+        },
+        { signal },
+      );
       if (signal?.aborted) return;
       setJobs(result.items);
+      setTotalCount(result.totalCount);
     } catch (requestError) {
       if (isRequestCanceled(requestError) || signal?.aborted) return;
       setError(getAxiosErrorMessage(requestError, "Unable to load jobs right now."));
@@ -88,13 +92,33 @@ export default function AdminJobsPage() {
         setIsLoading(false);
       }
     }
-  };
+  }, [page, search, status]);
 
   useEffect(() => {
     const controller = new AbortController();
     void loadJobs(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [loadJobs]);
+
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSearch(searchInput.trim());
+    setPage(1);
+  };
+
+  const handleStatusChange = (nextStatus: JobStatus | "all") => {
+    setStatus(nextStatus);
+    setPage(1);
+  };
+
+  const refreshAfterMutation = async (wasLastItemOnPage = false) => {
+    if (wasLastItemOnPage && page > 1) {
+      setPage((current) => Math.max(1, current - 1));
+      return;
+    }
+
+    await loadJobs(undefined);
+  };
 
   const updateJobStatus = async (job: JobRecord, nextAction: "publish" | "unpublish" | "close") => {
     setActionId(job.id);
@@ -108,7 +132,7 @@ export default function AdminJobsPage() {
             ? await unpublishJob(job.id)
             : await closeJob(job.id);
 
-      setJobs((current) => current.map((item) => (item.id === job.id ? updated : item)));
+      await refreshAfterMutation(status !== "all" && jobs.length === 1);
       setFeedback(`Job status updated to ${updated.status ?? "updated"}.`);
     } catch (requestError) {
       setError(getAxiosErrorMessage(requestError, "Unable to update job status right now."));
@@ -124,7 +148,7 @@ export default function AdminJobsPage() {
     setFeedback("");
     try {
       await deleteJob(job.id);
-      setJobs((current) => current.filter((item) => item.id !== job.id));
+      await refreshAfterMutation(jobs.length === 1);
       setFeedback("Job deleted successfully.");
     } catch (requestError) {
       setError(getAxiosErrorMessage(requestError, "Unable to delete job right now."));
@@ -152,10 +176,10 @@ export default function AdminJobsPage() {
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            { label: "Total Jobs", value: counts.all, color: "#0B1F4D" },
-            { label: "Published", value: counts.published, color: "#16A34A" },
-            { label: "Drafts", value: counts.draft, color: "#D97706" },
-            { label: "Closed", value: counts.closed, color: "#DC2626" },
+            { label: status === "all" ? "Total Jobs" : "Matching Jobs", value: counts.all, color: "#0B1F4D" },
+            { label: "Published on Page", value: counts.published, color: "#16A34A" },
+            { label: "Drafts on Page", value: counts.draft, color: "#D97706" },
+            { label: "Closed on Page", value: counts.closed, color: "#DC2626" },
           ].map((metric) => (
             <div key={metric.label} className="rounded-xl bg-white p-5" style={{ border: "1px solid #E2E8F0" }}>
               <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#94A3B8" }}>{metric.label}</div>
@@ -180,19 +204,28 @@ export default function AdminJobsPage() {
 
         <div className="rounded-xl bg-white" style={{ border: "1px solid #E2E8F0" }}>
           <div className="flex flex-col gap-3 border-b px-5 py-4 md:flex-row md:items-center" style={{ borderColor: "#E2E8F0" }}>
-            <div className="relative flex-1">
-              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search jobs..."
-                className="w-full rounded-lg py-2 pl-9 pr-3 text-sm outline-none"
-                style={{ border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#0F172A" }}
-              />
-            </div>
+            <form onSubmit={handleSearchSubmit} className="flex flex-1 gap-2">
+              <div className="relative flex-1">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
+                <input
+                  value={searchInput}
+                  onChange={(event) => setSearchInput(event.target.value)}
+                  placeholder="Search jobs..."
+                  className="w-full rounded-lg py-2 pl-9 pr-3 text-sm outline-none"
+                  style={{ border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#0F172A" }}
+                />
+              </div>
+              <button
+                type="submit"
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                style={{ background: "#0B1F4D" }}
+              >
+                Search
+              </button>
+            </form>
             <select
               value={status}
-              onChange={(event) => setStatus(event.target.value as JobStatus | "all")}
+              onChange={(event) => handleStatusChange(event.target.value as JobStatus | "all")}
               className="rounded-lg px-3 py-2 text-sm outline-none"
               style={{ border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#0F172A" }}
             >
@@ -205,7 +238,7 @@ export default function AdminJobsPage() {
 
           {isLoading ? (
             <div className="px-6 py-16 text-center text-sm" style={{ color: "#94A3B8" }}>Loading jobs...</div>
-          ) : filteredJobs.length === 0 ? (
+          ) : jobs.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
               <BriefcaseBusiness size={28} style={{ color: "#94A3B8" }} />
               <div>
@@ -224,11 +257,11 @@ export default function AdminJobsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredJobs.map((job, index) => {
+                  {jobs.map((job, index) => {
                     const disabled = actionId === job.id;
                     const statusValue = job.status ?? "Draft";
                     return (
-                      <tr key={job.id} style={{ borderBottom: index < filteredJobs.length - 1 ? "1px solid #F1F5F9" : "none" }}>
+                      <tr key={job.id} style={{ borderBottom: index < jobs.length - 1 ? "1px solid #F1F5F9" : "none" }}>
                         <td className="max-w-[420px] px-5 py-4">
                           <div className="font-semibold" style={{ color: "#0B1F4D" }}>{job.title}</div>
                           <div className="mt-1 truncate text-xs" style={{ color: "#64748B" }}>{job.employmentType} · {job.experienceLevel}</div>
@@ -272,6 +305,34 @@ export default function AdminJobsPage() {
               </table>
             </div>
           )}
+
+          {!isLoading && totalCount > 0 ? (
+            <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#E2E8F0" }}>
+              <div className="text-sm" style={{ color: "#64748B" }}>
+                Page {page} of {totalPages} · {totalCount} job{totalCount === 1 ? "" : "s"}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1 || isLoading || actionId !== null}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  className="rounded-lg border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= totalPages || isLoading || actionId !== null}
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  className="rounded-lg border px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </AdminLayout>

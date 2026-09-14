@@ -153,8 +153,9 @@ export default function AdminArticleFormPage() {
     setCoverImageError("");
     const extension = file.name.toLowerCase().split(".").pop();
     const allowedExtension = extension === "jpg" || extension === "jpeg" || extension === "png" || extension === "webp";
+    const allowedMimeType = file.type ? ACCEPTED_IMAGE_TYPES.includes(file.type) : true;
 
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type) || !allowedExtension) {
+    if (!allowedExtension || !allowedMimeType) {
       setCoverImageError("Only JPG, JPEG, PNG, or WebP images are accepted.");
       return;
     }
@@ -175,7 +176,7 @@ export default function AdminArticleFormPage() {
   };
 
   const handleSave = async (publishOverride?: boolean) => {
-    if (!validate() || saving) return;
+    if (!validate() || saving || saved) return;
     setSaving(true);
     setPageError("");
     setSaved(false);
@@ -222,6 +223,8 @@ export default function AdminArticleFormPage() {
       setSaving(false);
     }
   };
+
+  const formActionsDisabled = saving || saved;
 
   return (
     <AdminLayout title={isEdit ? "Edit Article" : "Create Article"}>
@@ -335,15 +338,15 @@ export default function AdminArticleFormPage() {
               </div>
 
               <div className="flex flex-col gap-3 rounded-xl bg-white p-6" style={{ border: "1px solid #E2E8F0" }}>
-                <button type="button" onClick={() => void handleSave()} disabled={saving || saved} className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white" style={{ background: saving || saved ? "#94A3B8" : "#0B1F4D" }}>
+                <button type="button" onClick={() => void handleSave()} disabled={formActionsDisabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white" style={{ background: formActionsDisabled ? "#94A3B8" : "#0B1F4D" }}>
                   {saving ? "Saving..." : <><Save size={15} /> {isEdit ? "Save Changes" : "Create Article"}</>}
                 </button>
                 {!published ? (
-                  <button type="button" onClick={() => { setPublished(true); void handleSave(true); }} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#16A34A", color: "#16A34A" }}>
+                  <button type="button" onClick={() => { setPublished(true); void handleSave(true); }} disabled={formActionsDisabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#16A34A", color: "#16A34A" }}>
                     <Globe size={15} /> Save & Publish
                   </button>
                 ) : (
-                  <button type="button" onClick={() => { setPublished(false); void handleSave(false); }} disabled={saving} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#D97706", color: "#D97706" }}>
+                  <button type="button" onClick={() => { setPublished(false); void handleSave(false); }} disabled={formActionsDisabled} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold" style={{ borderColor: "#D97706", color: "#D97706" }}>
                     <EyeOff size={15} /> Save & Unpublish
                   </button>
                 )}
