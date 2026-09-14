@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
-import { LayoutDashboard, Users, Settings, LogOut, Menu, X } from "lucide-react";
+import { BriefcaseBusiness, FileText, LayoutDashboard, Users, Settings, LogOut, Menu, X } from "lucide-react";
 import { ImageWithFallback } from "../shared/ImageWithFallback";
 import {
   clearAdminSession,
@@ -17,6 +17,8 @@ import { isRequestCanceled } from "../../../services/api/utils";
 const NAV = [
   { icon: <LayoutDashboard size={17} />, label: "Overview",          path: "/admin/overview" },
   { icon: <Users           size={17} />, label: "Talent Pool",       path: "/admin/talent"   },
+  { icon: <FileText        size={17} />, label: "Articles",          path: "/admin/articles" },
+  { icon: <BriefcaseBusiness size={17} />, label: "Jobs",            path: "/admin/jobs" },
   { icon: <Users           size={17} />, label: "Administrator Management", path: "/admin/administrators" },
   { icon: <Settings        size={17} />, label: "Settings",          path: "/admin/settings" },
 ];
@@ -34,6 +36,10 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
   );
 
   const visibleNav = NAV.filter((item) => superAdmin || item.path !== "/admin/administrators");
+  const isNavActive = (path: string) =>
+    pathname === path ||
+    (path === "/admin/talent" && pathname === "/admin") ||
+    (path !== "/admin/overview" && pathname.startsWith(`${path}/`));
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -197,7 +203,7 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
       <div className="max-h-[calc(100svh-64px)] overflow-y-auto px-4 py-4">
         <div className="flex flex-col gap-2">
           {visibleNav.map((item) => {
-            const active = pathname === item.path || (item.path === "/admin/talent" && pathname === "/admin");
+            const active = isNavActive(item.path);
 
             return (
               <Link
@@ -301,7 +307,7 @@ export function AdminLayout({ children, title }: { children: React.ReactNode; ti
         {/* Nav links */}
         <nav className="flex flex-col gap-1 p-3 flex-1">
           {visibleNav.map((item) => {
-            const active = pathname === item.path || (item.path === "/admin/talent" && pathname === "/admin");
+            const active = isNavActive(item.path);
             return (
               <Link
                 key={item.label}
