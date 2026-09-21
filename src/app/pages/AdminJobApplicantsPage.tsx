@@ -1,16 +1,50 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { AlertCircle, ArrowLeft, Download, Eye, FileText, Search, Users, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, ChevronUp, Download, Eye, FileText, Filter, Search, Users, X } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 import { getAdminJobById, type JobRecord } from "../../services/api/jobsApi";
 import {
+  getJobApplicationCv,
   getJobApplicationById,
+  getJobApplicationStats,
   getJobApplications,
+  updateJobApplicationStatus,
+  type JobApplicationStats,
+  type JobApplicationStatus,
   type JobApplicationRecord,
 } from "../../services/api/jobApplicationsApi";
 import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
 
 const PAGE_SIZE = 10;
+const APPLICATION_STATUSES: JobApplicationStatus[] = ["New", "UnderReview", "Shortlisted", "Hired", "Rejected"];
+const STATUS_LABELS: Record<JobApplicationStatus, string> = {
+  New: "New",
+  UnderReview: "Under Review",
+  Shortlisted: "Shortlisted",
+  Hired: "Hired",
+  Rejected: "Rejected",
+};
+const STATUS_CONFIG: Record<JobApplicationStatus, { bg: string; text: string; dot: string }> = {
+  New: { bg: "#EFF6FF", text: "#1D4ED8", dot: "#1D4ED8" },
+  UnderReview: { bg: "#FFFBEB", text: "#D97706", dot: "#D97706" },
+  Shortlisted: { bg: "#F0FDF4", text: "#16A34A", dot: "#16A34A" },
+  Hired: { bg: "#ECFDF5", text: "#059669", dot: "#059669" },
+  Rejected: { bg: "#F8FAFC", text: "#64748B", dot: "#94A3B8" },
+};
+const EMPTY_STATS: JobApplicationStats = {
+  totalApplications: 0,
+  newApplications: 0,
+  underReviewApplications: 0,
+  shortlistedApplications: 0,
+  hiredApplications: 0,
+  rejectedApplications: 0,
+};
 
 function formatDate(value: string | null) {
   if (!value) return "Not available";
@@ -24,14 +58,15 @@ function csvValue(value: string | number | null | undefined) {
 }
 
 function exportCSV(applicants: JobApplicationRecord[], jobTitle: string) {
-  const headers = ["Name", "Age", "Nationality", "Experience", "Ready To Start", "Expected Salary", "Additional Notes", "CV", "Applied Date"];
+  const headers = ["Name", "Age", "Nationality", "Experience", "Ready To Start", "Expected Salary", "Status", "Additional Notes", "CV", "Applied Date"];
   const rows = applicants.map((applicant) => [
     applicant.name,
     applicant.age,
     applicant.nationality,
     applicant.experience,
     applicant.readyToStart,
-    applicant.expectedSalary,
+    formatExpectedSalary(applicant),
+    STATUS_LABELS[applicant.status],
     applicant.additionalNotes,
     applicant.cvFileName,
     applicant.createdAt,
@@ -46,33 +81,154 @@ function exportCSV(applicants: JobApplicationRecord[], jobTitle: string) {
   URL.revokeObjectURL(url);
 }
 
+function getFilenameFromContentDisposition(contentDisposition?: string) {
+  if (!contentDisposition) return null;
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+  }
+
+  const filenameMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
+  return filenameMatch?.[1] ?? null;
+}
+
+function downloadBlob(url: string, filename: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function formatExpectedSalary(applicant: Pick<JobApplicationRecord, "expectedSalary" | "expectedSalaryCurrency">) {
+  const amount = applicant.expectedSalary?.trim();
+  const currency = applicant.expectedSalaryCurrency?.trim();
+  if (amount && currency) return `${amount} ${currency}`;
+  if (amount) return amount;
+  return "Not specified";
+}
+
+function StatusBadge({ status }: { status: JobApplicationStatus }) {
+  const color = STATUS_CONFIG[status];
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: color.bg, color: color.text }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: color.dot }} />
+      {STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+function FilterDropdown({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
+        style={{ border: `1px solid ${value ? "#1D4ED8" : "#E2E8F0"}`, color: value ? "#1D4ED8" : "#64748B", background: value ? "#EFF6FF" : "#ffffff" }}
+      >
+        <Filter size={13} />
+        {value || label}
+        <ChevronDown size={13} />
+      </button>
+      {open ? (
+        <div
+          className="absolute left-0 top-full z-20 mt-1 overflow-hidden rounded-xl"
+          style={{ background: "#ffffff", border: "1px solid #E2E8F0", minWidth: "180px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
+        >
+          {options.length > 0 ? options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                onChange(option === value ? "" : option);
+                setOpen(false);
+              }}
+              className="w-full px-4 py-2.5 text-left text-sm transition-colors"
+              style={{ background: option === value ? "#EFF6FF" : "transparent", color: option === value ? "#1D4ED8" : "#0F172A", fontWeight: option === value ? 600 : 400 }}
+              onMouseEnter={(e) => { if (option !== value) (e.currentTarget as HTMLElement).style.background = "#F8FAFC"; }}
+              onMouseLeave={(e) => { if (option !== value) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+            >
+              {option}
+            </button>
+          )) : (
+            <div className="px-4 py-2.5 text-sm" style={{ color: "#94A3B8" }}>No options</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function AdminJobApplicantsPage() {
   const { id } = useParams<{ id: string }>();
   const jobId = Number(id);
   const navigate = useNavigate();
   const [job, setJob] = useState<JobRecord | null>(null);
   const [applicants, setApplicants] = useState<JobApplicationRecord[]>([]);
+  const [stats, setStats] = useState<JobApplicationStats>(EMPTY_STATS);
   const [search, setSearch] = useState("");
+  const [experienceFilter, setExperienceFilter] = useState("");
+  const [nationalityFilter, setNationalityFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<JobApplicationStatus | "all">("all");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState("");
   const [selectedApplicantId, setSelectedApplicantId] = useState<number | null>(null);
   const [selectedApplicant, setSelectedApplicant] = useState<JobApplicationRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [cvActionId, setCvActionId] = useState<number | null>(null);
+  const [cvError, setCvError] = useState("");
+  const [statusMenuId, setStatusMenuId] = useState<number | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
+  const cvRequestInFlightRef = useRef(false);
+  const detailRequestIdRef = useRef<number | null>(null);
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const filtered = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
-    if (!normalizedSearch) return applicants;
-    return applicants.filter((applicant) =>
-      applicant.name.toLowerCase().includes(normalizedSearch) ||
-      applicant.nationality.toLowerCase().includes(normalizedSearch) ||
-      applicant.experience.toLowerCase().includes(normalizedSearch) ||
-      applicant.readyToStart.toLowerCase().includes(normalizedSearch),
-    );
-  }, [applicants, search]);
+    return applicants.filter((applicant) => {
+      const matchesExperience = !experienceFilter || applicant.experience === experienceFilter;
+      const matchesNationality = !nationalityFilter || applicant.nationality === nationalityFilter;
+      const matchesStatus = statusFilter === "all" || applicant.status === statusFilter;
+      if (!matchesExperience || !matchesNationality) return false;
+      if (!matchesStatus) return false;
+      if (!normalizedSearch) return true;
+      return (
+        applicant.name.toLowerCase().includes(normalizedSearch) ||
+        applicant.nationality.toLowerCase().includes(normalizedSearch) ||
+        applicant.location.toLowerCase().includes(normalizedSearch) ||
+        applicant.experience.toLowerCase().includes(normalizedSearch) ||
+        applicant.readyToStart.toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [applicants, experienceFilter, nationalityFilter, search, statusFilter]);
+
+  const experienceOptions = useMemo(
+    () => Array.from(new Set(applicants.map((applicant) => applicant.experience.trim()).filter(Boolean))).sort(),
+    [applicants],
+  );
+  const nationalityOptions = useMemo(
+    () => Array.from(new Set(applicants.map((applicant) => applicant.nationality.trim()).filter(Boolean))).sort(),
+    [applicants],
+  );
+  const statusFilterValue = statusFilter === "all" ? "" : STATUS_LABELS[statusFilter];
+
+  const statCards = [
+    { label: "TOTAL APPLICATIONS", value: stats.totalApplications, delta: "Applications for this job", color: "#1D4ED8" },
+    { label: "NEW", value: stats.newApplications, delta: "Recently submitted", color: STATUS_CONFIG.New.dot },
+    { label: "UNDER REVIEW", value: stats.underReviewApplications, delta: "Currently under review", color: STATUS_CONFIG.UnderReview.dot },
+    { label: "SHORTLISTED", value: stats.shortlistedApplications, delta: "Ready for next step", color: STATUS_CONFIG.Shortlisted.dot },
+    { label: "HIRED", value: stats.hiredApplications, delta: "Successfully completed", color: STATUS_CONFIG.Hired.dot },
+    { label: "REJECTED", value: stats.rejectedApplications, delta: "Closed applications", color: STATUS_CONFIG.Rejected.dot },
+  ];
 
   const loadApplicants = useCallback(async (signal?: AbortSignal) => {
     if (!Number.isFinite(jobId)) {
@@ -83,16 +239,19 @@ export default function AdminJobApplicantsPage() {
 
     setIsLoading(true);
     setError("");
-      setApplicants([]);
+    setFeedback("");
+    setApplicants([]);
       try {
-        const [jobResult, applicationsResult] = await Promise.all([
+        const [jobResult, applicationsResult, statsResult] = await Promise.all([
         getAdminJobById(jobId, { signal }),
         getJobApplications(jobId, { pageNumber: page, pageSize: PAGE_SIZE }, { signal }),
+        getJobApplicationStats(jobId, { signal }),
       ]);
       if (signal?.aborted) return;
       setJob(jobResult);
       setApplicants(applicationsResult.items);
       setTotalCount(applicationsResult.totalCount);
+      setStats(statsResult);
     } catch (requestError) {
       if (isRequestCanceled(requestError) || signal?.aborted) return;
       setError(getAxiosErrorMessage(requestError, "Unable to load applicants right now."));
@@ -108,26 +267,140 @@ export default function AdminJobApplicantsPage() {
   }, [loadApplicants]);
 
   const openApplicantDetail = async (applicationId: number) => {
+    if (selectedApplicantId === applicationId) {
+      detailRequestIdRef.current = null;
+      setSelectedApplicantId(null);
+      setSelectedApplicant(null);
+      setDetailError("");
+      setDetailLoading(false);
+      return;
+    }
+
     setSelectedApplicantId(applicationId);
+    detailRequestIdRef.current = applicationId;
     setSelectedApplicant(null);
     setDetailError("");
     setDetailLoading(true);
 
     try {
       const detail = await getJobApplicationById(jobId, applicationId);
+      if (detailRequestIdRef.current !== applicationId) return;
       setSelectedApplicant(detail);
     } catch (requestError) {
+      if (detailRequestIdRef.current !== applicationId) return;
       setDetailError(getAxiosErrorMessage(requestError, "Unable to load applicant details right now."));
     } finally {
-      setDetailLoading(false);
+      if (detailRequestIdRef.current === applicationId) setDetailLoading(false);
     }
   };
 
-  const closeApplicantDetail = () => {
-    setSelectedApplicantId(null);
-    setSelectedApplicant(null);
-    setDetailError("");
-    setDetailLoading(false);
+  const refreshStats = async () => {
+    const nextStats = await getJobApplicationStats(jobId);
+    setStats(nextStats);
+  };
+
+  const handleStatusUpdate = async (applicant: JobApplicationRecord, nextStatus: JobApplicationStatus) => {
+    if (statusUpdatingId) return;
+    if (applicant.status === nextStatus) {
+      setStatusMenuId(null);
+      return;
+    }
+
+    setStatusUpdatingId(applicant.id);
+    setStatusMenuId(null);
+    setError("");
+    setFeedback("");
+
+    try {
+      const updated = await updateJobApplicationStatus(jobId, applicant.id, nextStatus);
+      setApplicants((current) =>
+        current.map((item) =>
+          item.id === applicant.id
+            ? updated.id
+              ? {
+                  ...item,
+                  ...updated,
+                  status: updated.status,
+                }
+              : {
+                  ...item,
+                  status: nextStatus,
+                }
+            : item,
+        ),
+      );
+      setSelectedApplicant((current) =>
+        current?.id === applicant.id
+          ? updated.id
+            ? {
+                ...current,
+                ...updated,
+                status: updated.status,
+              }
+            : {
+                ...current,
+                status: nextStatus,
+              }
+          : current,
+      );
+      await refreshStats();
+      setFeedback(`${applicant.name} moved to ${STATUS_LABELS[nextStatus]}.`);
+    } catch (requestError) {
+      setError(getAxiosErrorMessage(requestError, "Unable to update applicant status right now."));
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
+  const handleViewCv = async (application: JobApplicationRecord) => {
+    if (cvRequestInFlightRef.current) return;
+    cvRequestInFlightRef.current = true;
+
+    const isPdfFile = application.cvFileName.toLowerCase().endsWith(".pdf");
+    let pdfWindow: Window | null = null;
+
+    if (isPdfFile) {
+      pdfWindow = window.open("about:blank", "_blank");
+      if (!pdfWindow) {
+        setCvError("Unable to open the CV. Please allow popups for this site and try again.");
+        cvRequestInFlightRef.current = false;
+        return;
+      }
+      pdfWindow.opener = null;
+    }
+
+    setCvActionId(application.id);
+    setCvError("");
+
+    try {
+      const cvResponse = await getJobApplicationCv(jobId, application.id);
+      const contentType = cvResponse.contentType?.toLowerCase() ?? cvResponse.blob.type.toLowerCase();
+      const filename =
+        getFilenameFromContentDisposition(cvResponse.contentDisposition) ||
+        application.cvFileName ||
+        `${application.name.toLowerCase().replace(/\s+/g, "-") || "candidate"}-cv`;
+      const blob = contentType ? new Blob([cvResponse.blob], { type: contentType }) : cvResponse.blob;
+      const url = URL.createObjectURL(blob);
+
+      if (isPdfFile || contentType.includes("pdf")) {
+        if (!pdfWindow) {
+          setCvError("Unable to open the CV. Please allow popups for this site and try again.");
+          URL.revokeObjectURL(url);
+          return;
+        }
+        pdfWindow.location.href = url;
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        return;
+      }
+
+      downloadBlob(url, filename);
+      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (requestError) {
+      setCvError(getAxiosErrorMessage(requestError, "Unable to open this CV right now."));
+    } finally {
+      cvRequestInFlightRef.current = false;
+      setCvActionId(null);
+    }
   };
 
   return (
@@ -145,6 +418,18 @@ export default function AdminJobApplicantsPage() {
           </div>
         ) : null}
 
+        {cvError ? (
+          <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#DC2626" }}>
+            <AlertCircle size={14} /> {cvError}
+          </div>
+        ) : null}
+
+        {feedback ? (
+          <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm" style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", color: "#15803D" }}>
+            <AlertCircle size={14} /> {feedback}
+          </div>
+        ) : null}
+
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-xl font-black" style={{ color: "#0B1F4D", letterSpacing: "-0.02em" }}>
@@ -156,7 +441,7 @@ export default function AdminJobApplicantsPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {applicants.length > 0 && job ? (
-              <button type="button" onClick={() => exportCSV(applicants, job.title)} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold" style={{ borderColor: "#E2E8F0", color: "#64748B" }}>
+              <button type="button" onClick={() => exportCSV(applicants, job.title)} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold text-white transition-colors" style={{ borderColor: "#16A34A", background: "#16A34A" }}>
                 <Download size={14} /> Export CSV
               </button>
             ) : null}
@@ -166,13 +451,57 @@ export default function AdminJobApplicantsPage() {
           </div>
         </div>
 
-        {applicants.length > 0 || search ? (
-          <div className="flex items-center gap-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {statCards.map((metric) => (
+            <div key={metric.label} className="flex flex-col gap-3 rounded-xl bg-white p-5" style={{ border: "1px solid #E2E8F0" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#94A3B8" }}>{metric.label}</span>
+                <div className="h-2 w-2 rounded-full" style={{ background: metric.color }} />
+              </div>
+              <div style={{ fontSize: "2rem", fontWeight: 900, color: "#0B1F4D", lineHeight: 1, letterSpacing: "-0.025em" }}>
+                {isLoading ? "..." : metric.value.toLocaleString("en-US")}
+              </div>
+              <div className="text-xs font-medium" style={{ color: "#64748B" }}>
+                ● {metric.delta}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {applicants.length > 0 || search || experienceFilter || nationalityFilter || statusFilter !== "all" ? (
+          <div className="flex flex-wrap items-center gap-3">
             <div className="relative">
               <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search applicants..." className="rounded-lg py-2 pl-9 pr-9 text-sm outline-none" style={{ border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#0F172A", width: "240px" }} />
               {search ? <button type="button" onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2"><X size={12} style={{ color: "#94A3B8" }} /></button> : null}
             </div>
+            <div className="h-5 w-px" style={{ background: "#E2E8F0" }} />
+            <FilterDropdown label="Experience" options={experienceOptions} value={experienceFilter} onChange={setExperienceFilter} />
+            <FilterDropdown label="Nationality" options={nationalityOptions} value={nationalityFilter} onChange={setNationalityFilter} />
+            <FilterDropdown
+              label="Status"
+              options={APPLICATION_STATUSES.map((status) => STATUS_LABELS[status])}
+              value={statusFilterValue}
+              onChange={(nextLabel) => {
+                const nextStatus = APPLICATION_STATUSES.find((status) => STATUS_LABELS[status] === nextLabel);
+                setStatusFilter(nextStatus ?? "all");
+              }}
+            />
+            {search || experienceFilter || nationalityFilter || statusFilter !== "all" ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setExperienceFilter("");
+                  setNationalityFilter("");
+                  setStatusFilter("all");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors"
+                style={{ borderColor: "#E2E8F0", color: "#64748B" }}
+              >
+                <X size={11} /> Clear
+              </button>
+            ) : null}
             <span className="text-xs" style={{ color: "#94A3B8" }}>
               {filtered.length} result{filtered.length === 1 ? "" : "s"} on this page
             </span>
@@ -205,50 +534,176 @@ export default function AdminJobApplicantsPage() {
               <table className="w-full" style={{ borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #E2E8F0" }}>
-                    {["Candidate", "Age", "Nationality", "Experience", "Ready", "Expected Salary", "Notes", "CV", "Applied", "Actions"].map((heading) => (
+                    {["Candidate", "Age", "Nationality", "Experience", "Ready", "Expected Salary", "Status", "Notes", "CV", "Applied", "Actions"].map((heading) => (
                       <th key={heading} className="whitespace-nowrap px-5 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8", background: "#F8FAFC" }}>{heading}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((applicant, index) => (
-                    <tr key={applicant.id} style={{ borderBottom: index < filtered.length - 1 ? "1px solid #F1F5F9" : "none" }}>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-xs font-bold" style={{ background: "#EFF6FF", color: "#1D4ED8" }}>
-                            {applicant.name.split(" ").map((word) => word[0]).join("").slice(0, 2).toUpperCase()}
-                          </div>
-                          <span className="text-sm font-semibold" style={{ color: "#0B1F4D" }}>{applicant.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.age}</td>
-                      <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.nationality}</td>
-                      <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.experience}</td>
-                      <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.readyToStart}</td>
-                      <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.expectedSalary}</td>
-                      <td className="max-w-[260px] truncate px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.additionalNotes ?? "-"}</td>
-                      <td className="px-5 py-4">
-                        {applicant.cvUrl ? (
-                          <a href={applicant.cvUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold" style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}>
-                            <FileText size={12} /> {applicant.cvFileName || "Open CV"}
-                          </a>
-                        ) : (
-                          <span className="text-xs" style={{ color: "#CBD5E1" }}>No CV URL</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-5 py-4 text-sm" style={{ color: "#94A3B8" }}>{formatDate(applicant.createdAt)}</td>
-                      <td className="px-5 py-4">
-                        <button
-                          type="button"
+                  {filtered.map((applicant, index) => {
+                    const isExpanded = selectedApplicantId === applicant.id;
+                    return (
+                      <Fragment key={applicant.id}>
+                        <tr
+                          tabIndex={0}
+                          aria-expanded={isExpanded}
                           onClick={() => void openApplicantDetail(applicant.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold"
-                          style={{ borderColor: "#BFDBFE", color: "#1D4ED8" }}
+                          onKeyDown={(event) => {
+                            if (event.target !== event.currentTarget) return;
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              void openApplicantDetail(applicant.id);
+                            }
+                          }}
+                          className="cursor-pointer transition-colors hover:bg-[#F8FAFC] focus:outline-none focus-visible:bg-[#F8FAFC]"
+                          style={{ borderBottom: isExpanded || index < filtered.length - 1 ? "1px solid #F1F5F9" : "none" }}
                         >
-                          <Eye size={12} /> View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-xs font-bold" style={{ background: "#EFF6FF", color: "#1D4ED8" }}>
+                                {applicant.name.split(" ").map((word) => word[0]).join("").slice(0, 2).toUpperCase()}
+                              </div>
+                              <span className="text-sm font-semibold" style={{ color: "#0B1F4D" }}>{applicant.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.age}</td>
+                          <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.nationality}</td>
+                          <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.experience}</td>
+                          <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.readyToStart}</td>
+                          <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{formatExpectedSalary(applicant)}</td>
+                          <td className="px-5 py-4"><StatusBadge status={applicant.status} /></td>
+                          <td className="max-w-[260px] truncate px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.additionalNotes ?? "-"}</td>
+                          <td className="px-5 py-4">
+                            {applicant.cvFileName ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleViewCv(applicant);
+                                }}
+                                disabled={cvActionId === applicant.id}
+                                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                                style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
+                              >
+                                <FileText size={12} /> {cvActionId === applicant.id ? "Opening..." : applicant.cvFileName}
+                              </button>
+                            ) : (
+                              <span className="text-xs" style={{ color: "#CBD5E1" }}>No CV</span>
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-5 py-4 text-sm" style={{ color: "#94A3B8" }}>{formatDate(applicant.createdAt)}</td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void openApplicantDetail(applicant.id);
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                                style={{ borderColor: "#BFDBFE", color: "#1D4ED8" }}
+                                aria-expanded={isExpanded}
+                              >
+                                <Eye size={12} /> View {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                              </button>
+                              <DropdownMenu
+                                open={statusMenuId === applicant.id}
+                                onOpenChange={(open) => setStatusMenuId(open ? applicant.id : null)}
+                              >
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    disabled={statusUpdatingId === applicant.id}
+                                    onClick={(event) => event.stopPropagation()}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                                    style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
+                                  >
+                                    {statusUpdatingId === applicant.id ? "Updating..." : "Update Status"} <ChevronDown size={12} />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent
+                                  align="end"
+                                  side="bottom"
+                                  sideOffset={8}
+                                  collisionPadding={16}
+                                  className="z-[100] w-44 overflow-hidden rounded-xl bg-white p-0 shadow-xl"
+                                  style={{ border: "1px solid #E2E8F0" }}
+                                >
+                                  {APPLICATION_STATUSES.map((status) => (
+                                    <DropdownMenuItem
+                                      key={status}
+                                      disabled={statusUpdatingId === applicant.id || applicant.status === status}
+                                      onSelect={() => void handleStatusUpdate(applicant, status)}
+                                      className="flex w-full cursor-pointer items-center justify-between rounded-none px-3 py-2 text-left text-xs font-semibold focus:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+                                      style={{ color: applicant.status === status ? "#94A3B8" : "#0B1F4D" }}
+                                    >
+                                      <span>{STATUS_LABELS[status]}</span>
+                                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_CONFIG[status].dot }} />
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr key={`${applicant.id}-details`} style={{ borderBottom: index < filtered.length - 1 ? "1px solid #E2E8F0" : "none" }}>
+                            <td colSpan={11} className="px-5 py-5" style={{ background: "#F8FAFC" }}>
+                              {detailLoading ? (
+                                <div className="py-8 text-center text-sm" style={{ color: "#94A3B8" }}>Loading applicant details...</div>
+                              ) : detailError ? (
+                                <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#DC2626" }}>
+                                  <AlertCircle size={14} /> {detailError}
+                                </div>
+                              ) : selectedApplicant ? (
+                                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                                  {[
+                                    ["Name", selectedApplicant.name],
+                                    ["Age", selectedApplicant.age],
+                                    ["Nationality", selectedApplicant.nationality],
+                                    ["Experience", selectedApplicant.experience],
+                                    ["Ready To Start", selectedApplicant.readyToStart],
+                                    ["Expected Salary", formatExpectedSalary(selectedApplicant)],
+                                    ["Status", STATUS_LABELS[selectedApplicant.status]],
+                                    ["Applied", formatDate(selectedApplicant.createdAt)],
+                                    ["Updated", formatDate(selectedApplicant.updatedAt)],
+                                    ["Additional Notes", selectedApplicant.additionalNotes || "-"],
+                                  ].map(([label, value]) => (
+                                    <div key={String(label)} className="rounded-xl bg-white p-4" style={{ border: "1px solid #E2E8F0" }}>
+                                      <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>{label}</div>
+                                      <div
+                                        className={label === "Additional Notes" ? "mt-2 whitespace-pre-line text-sm leading-6" : "mt-2 text-sm font-semibold"}
+                                        style={{ color: label === "Additional Notes" ? "#334155" : "#0B1F4D" }}
+                                      >
+                                        {String(value || "-")}
+                                      </div>
+                                    </div>
+                                  ))}
+
+                                  <div className="rounded-xl bg-white p-4 sm:col-span-2 xl:col-span-5" style={{ border: "1px solid #E2E8F0" }}>
+                                    <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>CV</div>
+                                    {selectedApplicant.cvFileName ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleViewCv(selectedApplicant)}
+                                        disabled={cvActionId === selectedApplicant.id}
+                                        className="mt-3 inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                                        style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
+                                      >
+                                        <FileText size={14} /> {cvActionId === selectedApplicant.id ? "Opening..." : selectedApplicant.cvFileName}
+                                      </button>
+                                    ) : (
+                                      <div className="mt-2 text-sm" style={{ color: "#94A3B8" }}>No CV available.</div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -283,65 +738,6 @@ export default function AdminJobApplicantsPage() {
           ) : null}
         </div>
 
-        {selectedApplicantId !== null ? (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 px-4 py-6 sm:items-center">
-            <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl" style={{ border: "1px solid #E2E8F0" }}>
-              <div className="flex items-center justify-between border-b px-6 py-4" style={{ borderColor: "#E2E8F0" }}>
-                <div>
-                  <div className="text-sm font-black" style={{ color: "#0B1F4D" }}>Applicant Details</div>
-                  <div className="mt-0.5 text-xs" style={{ color: "#94A3B8" }}>{job?.title ?? "Job application"}</div>
-                </div>
-                <button type="button" onClick={closeApplicantDetail} className="rounded-lg p-2" style={{ color: "#64748B" }}>
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="max-h-[72vh] overflow-y-auto p-6">
-                {detailLoading ? (
-                  <div className="py-12 text-center text-sm" style={{ color: "#94A3B8" }}>Loading applicant details...</div>
-                ) : detailError ? (
-                  <div className="flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#DC2626" }}>
-                    <AlertCircle size={14} /> {detailError}
-                  </div>
-                ) : selectedApplicant ? (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {[
-                      ["Name", selectedApplicant.name],
-                      ["Age", selectedApplicant.age],
-                      ["Nationality", selectedApplicant.nationality],
-                      ["Experience", selectedApplicant.experience],
-                      ["Ready To Start", selectedApplicant.readyToStart],
-                      ["Expected Salary", selectedApplicant.expectedSalary],
-                      ["Applied", formatDate(selectedApplicant.createdAt)],
-                      ["Updated", formatDate(selectedApplicant.updatedAt)],
-                    ].map(([label, value]) => (
-                      <div key={String(label)} className="rounded-xl p-4" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-                        <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>{label}</div>
-                        <div className="mt-2 text-sm font-semibold" style={{ color: "#0B1F4D" }}>{String(value || "-")}</div>
-                      </div>
-                    ))}
-
-                    <div className="rounded-xl p-4 sm:col-span-2" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-                      <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>Additional Notes</div>
-                      <div className="mt-2 whitespace-pre-line text-sm leading-6" style={{ color: "#334155" }}>{selectedApplicant.additionalNotes || "-"}</div>
-                    </div>
-
-                    <div className="rounded-xl p-4 sm:col-span-2" style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
-                      <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>CV</div>
-                      {selectedApplicant.cvUrl ? (
-                        <a href={selectedApplicant.cvUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm font-semibold" style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}>
-                          <FileText size={14} /> {selectedApplicant.cvFileName || "Open CV"}
-                        </a>
-                      ) : (
-                        <div className="mt-2 text-sm" style={{ color: "#94A3B8" }}>No CV URL available.</div>
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
     </AdminLayout>
   );

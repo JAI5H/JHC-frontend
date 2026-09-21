@@ -10,6 +10,7 @@ import {
   updateArticle,
   type ArticleRecord,
 } from "../../services/api/articlesApi";
+import { apiClient } from "../../services/api/client";
 import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
 
 const MAX_TITLE = 200;
@@ -47,6 +48,11 @@ function generateSlug(title: string) {
     .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+function getArticleCoverImageSrc(slug: string) {
+  const baseUrl = String(apiClient.defaults.baseURL ?? "").replace(/\/$/, "");
+  return `${baseUrl}/api/articles/${encodeURIComponent(slug)}/cover-image`;
 }
 
 function FieldError({ msg }: { msg?: string }) {
@@ -90,8 +96,9 @@ export default function AdminArticleFormPage() {
 
   const previewUrl = useMemo(() => {
     if (coverImageFile) return URL.createObjectURL(coverImageFile);
+    if (coverImageUrl && existing?.slug) return getArticleCoverImageSrc(existing.slug);
     return coverImageUrl;
-  }, [coverImageFile, coverImageUrl]);
+  }, [coverImageFile, coverImageUrl, existing?.slug]);
 
   useEffect(() => {
     return () => {

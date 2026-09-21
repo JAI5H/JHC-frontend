@@ -33,16 +33,153 @@ import {
   X,
 } from "lucide-react";
 import logo from "../../imgs/logo.png";
-import heroCenterLogo from "../../imgs/undraw_business-call_w1gr1.svg";
+import heroCenterLogo from "../../imgs/favicon-C4OwiO8g.png";
 import { CEOMessage } from "../../app/components/CEOMessage";
 import CountUp from "../../app/components/CountUp";
 import { useTranslation } from "../../app/hooks/useTranslation";
 import { useLanguage } from "../../app/providers/LanguageProvider";
 import { translations } from "../../locales";
 import { getPublicArticles, type ArticleRecord } from "../../services/api/articlesApi";
+import { apiClient } from "../../services/api/client";
 import { submitContactForm } from "../../services/api/contactApi";
-import { getPublicJobs, type JobRecord } from "../../services/api/jobsApi";
+import { formatJobSalary, getPublicJobs, type JobRecord } from "../../services/api/jobsApi";
 import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
+
+const partnerLogoModules = import.meta.glob<string>("../../imgs/partnars/*.{webp,png,jpg,jpeg,svg}", {
+  eager: true,
+  import: "default",
+  query: "?url",
+});
+
+type PartnerLogoAsset = {
+  src: string;
+  name: string;
+};
+
+type PartnerLogoStrip = {
+  src: string;
+  width: number;
+  height: number;
+};
+
+const partnerLogos: PartnerLogoAsset[] = Object.entries(partnerLogoModules)
+  .sort(([leftPath], [rightPath]) => {
+    const leftNumber = Number(leftPath.match(/logoo(\d+)/)?.[1] ?? 0);
+    const rightNumber = Number(rightPath.match(/logoo(\d+)/)?.[1] ?? 0);
+    return leftNumber - rightNumber;
+  })
+  .map(([path, src]) => ({
+    src,
+    name: path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "partner-logo",
+  }));
+
+const partnerLogoRows = partnerLogos.reduce<[PartnerLogoAsset[], PartnerLogoAsset[]]>(
+  (rows, partner, index) => {
+    rows[index % 2].push(partner);
+    return rows;
+  },
+  [[], []],
+);
+
+const partnerLogoRenderPresets = {
+  mobile: {
+    maxLogoWidth: 150,
+    maxLogoHeight: 40,
+    paddingX: 8,
+    paddingY: 6,
+    gap: 34,
+    radius: 4,
+  },
+  desktop: {
+    maxLogoWidth: 220,
+    maxLogoHeight: 56,
+    paddingX: 12,
+    paddingY: 8,
+    gap: 56,
+    radius: 4,
+  },
+};
+
+function loadPartnerLogoImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
+function drawRoundedRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const safeRadius = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
+  context.closePath();
+}
+
+async function createPartnerLogoStrip(row: PartnerLogoAsset[], isDesktop: boolean): Promise<PartnerLogoStrip> {
+  const preset = isDesktop ? partnerLogoRenderPresets.desktop : partnerLogoRenderPresets.mobile;
+  const loadedImages = await Promise.all(row.map((partner) => loadPartnerLogoImage(partner.src)));
+  const items = loadedImages.map((image) => {
+    const scale = Math.min(preset.maxLogoWidth / image.naturalWidth, preset.maxLogoHeight / image.naturalHeight, 1);
+    const logoWidth = Math.round(image.naturalWidth * scale);
+    const logoHeight = Math.round(image.naturalHeight * scale);
+    return {
+      image,
+      logoWidth,
+      logoHeight,
+      frameWidth: logoWidth + preset.paddingX * 2 + 2,
+      frameHeight: logoHeight + preset.paddingY * 2 + 2,
+    };
+  });
+  const width = Math.ceil(items.reduce((total, item) => total + item.frameWidth, 0) + preset.gap * row.length);
+  const height = Math.ceil(Math.max(...items.map((item) => item.frameHeight)));
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(width * pixelRatio);
+  canvas.height = Math.ceil(height * pixelRatio);
+  const context = canvas.getContext("2d");
+  if (!context) return { src: "", width, height };
+
+  context.scale(pixelRatio, pixelRatio);
+  context.clearRect(0, 0, width, height);
+
+  let x = 0;
+  items.forEach((item) => {
+    const frameY = Math.round((height - item.frameHeight) / 2);
+    drawRoundedRect(context, x + 0.5, frameY + 0.5, item.frameWidth - 1, item.frameHeight - 1, preset.radius);
+    context.fillStyle = "rgba(255, 255, 255, 0.4)";
+    context.fill();
+    context.strokeStyle = "rgba(226, 232, 240, 0.45)";
+    context.lineWidth = 1;
+    context.stroke();
+
+    const imageX = x + preset.paddingX + 1;
+    const imageY = frameY + preset.paddingY + 1;
+    context.save();
+    context.globalAlpha = 0.8;
+    drawRoundedRect(context, imageX, imageY, item.logoWidth, item.logoHeight, preset.radius);
+    context.clip();
+    context.drawImage(item.image, imageX, imageY, item.logoWidth, item.logoHeight);
+    context.restore();
+
+    x += item.frameWidth + preset.gap;
+  });
+
+  return {
+    src: canvas.toDataURL("image/webp", 0.92),
+    width,
+    height,
+  };
+}
 
 type Metric = {
   value: string;
@@ -503,13 +640,13 @@ function languageSwitcher({
   const arabicScriptPattern = /[\u0600-\u06FF]/;
   const languageOptions = isArabic
     ? [
-        { code: "ar", label: "العربية" },
-        { code: "en", label: "EN" },
-      ]
+      { code: "ar", label: "العربية" },
+      { code: "en", label: "EN" },
+    ]
     : [
-        { code: "en", label: "EN" },
-        { code: "ar", label: "العربية" },
-      ];
+      { code: "en", label: "EN" },
+      { code: "ar", label: "العربية" },
+    ];
 
   return (
     <div
@@ -635,6 +772,11 @@ function getArticleDateValue(article: ArticleRecord) {
   return article.publishedAt ?? article.createdAt ?? article.updatedAt;
 }
 
+function getArticleCoverImageSrc(slug: string) {
+  const baseUrl = String(apiClient.defaults.baseURL ?? "").replace(/\/$/, "");
+  return `${baseUrl}/api/articles/${encodeURIComponent(slug)}/cover-image`;
+}
+
 function getJobDateValue(job: JobRecord) {
   return job.createdAt ?? job.updatedAt ?? job.applicationDeadline;
 }
@@ -716,14 +858,64 @@ export default function JhcLandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFooterSection, setOpenFooterSection] = useState<FooterAccordionSection | null>(null);
   const [activeTestimonialIndex, setActiveTestimonialIndex] = useState(0);
+  const [activeArticleIndex, setActiveArticleIndex] = useState(0);
+  const [activeJobIndex, setActiveJobIndex] = useState(0);
   const [latestArticles, setLatestArticles] = useState<ArticleRecord[]>([]);
   const [articlesState, setArticlesState] = useState<LandingResourceState>("idle");
   const [openJobs, setOpenJobs] = useState<JobRecord[]>([]);
   const [jobsState, setJobsState] = useState<LandingResourceState>("idle");
+  const [partnerLogoStrips, setPartnerLogoStrips] = useState<Array<PartnerLogoStrip | null>>([null, null]);
+  const articleCarouselRef = useRef<HTMLDivElement | null>(null);
+  const jobCarouselRef = useRef<HTMLDivElement | null>(null);
+  const partnerLogoSectionRef = useRef<HTMLElement | null>(null);
 
   const contactFieldKeys: ContactFormFieldKey[] = ["fullName", "company", "phone", "email"];
   const subtleButtonHoverClassName = "subtle-button-hover";
   const cardHoverClassName = "card-hover-lift";
+
+  const updateActiveArticleIndex = () => {
+    const carousel = articleCarouselRef.current;
+    if (!carousel) return;
+
+    const carouselBounds = carousel.getBoundingClientRect();
+    const carouselCenter = carouselBounds.left + carouselBounds.width / 2;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    Array.from(carousel.children).forEach((child, index) => {
+      const bounds = child.getBoundingClientRect();
+      const childCenter = bounds.left + bounds.width / 2;
+      const distance = Math.abs(childCenter - carouselCenter);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    setActiveArticleIndex(closestIndex);
+  };
+
+  const updateActiveJobIndex = () => {
+    const carousel = jobCarouselRef.current;
+    if (!carousel) return;
+
+    const carouselBounds = carousel.getBoundingClientRect();
+    const carouselCenter = carouselBounds.left + carouselBounds.width / 2;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    Array.from(carousel.children).forEach((child, index) => {
+      const bounds = child.getBoundingClientRect();
+      const childCenter = bounds.left + bounds.width / 2;
+      const distance = Math.abs(childCenter - carouselCenter);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    setActiveJobIndex(closestIndex);
+  };
 
   const updateContactField = (key: ContactFormFieldKey, value: string) => {
     setContactForm((current) => ({ ...current, [key]: value }));
@@ -850,6 +1042,70 @@ export default function JhcLandingPage() {
     void loadLatestArticles();
 
     return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    setActiveArticleIndex(0);
+  }, [latestArticles.length]);
+
+  useEffect(() => {
+    setActiveJobIndex(0);
+  }, [openJobs.length]);
+
+  useEffect(() => {
+    const section = partnerLogoSectionRef.current;
+    if (!section) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          section.setAttribute("data-partner-marquee-active", "true");
+        } else {
+          section.removeAttribute("data-partner-marquee-active");
+        }
+      },
+      {
+        rootMargin: "360px 0px",
+        threshold: 0,
+      },
+    );
+
+    observer.observe(section);
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let resizeTimer: number | undefined;
+    let currentMode: "desktop" | "mobile" | null = null;
+
+    const buildStrips = async () => {
+      const nextMode = window.matchMedia("(min-width: 768px)").matches ? "desktop" : "mobile";
+      if (nextMode === currentMode) return;
+      currentMode = nextMode;
+
+      const strips = await Promise.all(partnerLogoRows.map((row) => createPartnerLogoStrip(row, nextMode === "desktop")));
+      if (!cancelled) {
+        setPartnerLogoStrips(strips);
+      }
+    };
+
+    const handleResize = () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        void buildStrips();
+      }, 160);
+    };
+
+    void buildStrips();
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(resizeTimer);
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -1131,12 +1387,13 @@ export default function JhcLandingPage() {
   const arabicMarqueePhrases = isArabic ? getArabicMarqueePhrases(marqueeItems) : [];
   const arabicMarqueeLoopPhrases = isArabic
     ? [
-        ...arabicMarqueePhrases,
-        ...arabicMarqueePhrases,
-        ...arabicMarqueePhrases,
-        ...arabicMarqueePhrases,
-      ]
+      ...arabicMarqueePhrases,
+      ...arabicMarqueePhrases,
+      ...arabicMarqueePhrases,
+      ...arabicMarqueePhrases,
+    ]
     : [];
+  const mobileOpenJobs = sortByNewest(openJobs, (job) => job.createdAt ?? null);
 
   return (
     <div
@@ -1206,6 +1463,22 @@ export default function JhcLandingPage() {
             transform: translateX(50%);
           }
         }
+        @keyframes partner-marquee-left {
+          0% {
+            transform: translate3d(0, 0, 0);
+          }
+          100% {
+            transform: translate3d(-50%, 0, 0);
+          }
+        }
+        @keyframes partner-marquee-right {
+          0% {
+            transform: translate3d(-50%, 0, 0);
+          }
+          100% {
+            transform: translate3d(0, 0, 0);
+          }
+        }
         .animate-marquee {
           animation: marquee 25s linear infinite;
         }
@@ -1214,6 +1487,26 @@ export default function JhcLandingPage() {
         }
         .animate-marquee-ticker-arabic {
           animation: marquee-arabic 56s linear infinite;
+        }
+        .animate-partner-marquee-left {
+          animation: partner-marquee-left 64s linear infinite;
+          animation-play-state: paused;
+          backface-visibility: hidden;
+          contain: layout paint style;
+          transform: translate3d(0, 0, 0);
+          will-change: transform;
+        }
+        .animate-partner-marquee-right {
+          animation: partner-marquee-right 72s linear infinite;
+          animation-play-state: paused;
+          backface-visibility: hidden;
+          contain: layout paint style;
+          transform: translate3d(-50%, 0, 0);
+          will-change: transform;
+        }
+        [data-partner-marquee-active="true"] .animate-partner-marquee-left,
+        [data-partner-marquee-active="true"] .animate-partner-marquee-right {
+          animation-play-state: running;
         }
         @media (min-width: 768px) {
           .animate-marquee-ticker {
@@ -1242,8 +1535,12 @@ export default function JhcLandingPage() {
           }
           .animate-marquee,
           .animate-marquee-ticker,
-          .animate-marquee-ticker-arabic {
+          .animate-marquee-ticker-arabic,
+          .animate-partner-marquee-left,
+          .animate-partner-marquee-right {
             animation: none;
+            transform: none;
+            will-change: auto;
           }
         }
         @media (max-width: 767px) {
@@ -1256,344 +1553,344 @@ export default function JhcLandingPage() {
         }
       `}</style>
       <div className="relative">
-      <div
-        aria-hidden="true"
-        className="absolute inset-x-0 top-0 bottom-[28%] rounded-b-[24px] bg-[#030e26] md:rounded-b-[24px]"
-      />
-      <section
-        id="hero"
-        className={[
-          "relative overflow-hidden rounded-b-[24px] bg-[#030e26] pb-10 pt-[112px] md:rounded-b-[24px] md:pb-0 md:pt-0",
-          isArabic ? "md:h-[980px]" : "md:h-[1020px]",
-        ].join(" ")}
-      >
         <div
-          className="absolute inset-0 hidden opacity-100 md:block"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.0525) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.0525) 1px, transparent 1px)",
-            backgroundPosition: "-18px 0",
-            backgroundSize: "70px 68.94px",
-          }}
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 bottom-[28%] rounded-b-[24px] bg-[#030e26] md:rounded-b-[24px]"
         />
-        <div
-          className="absolute inset-0 opacity-100 md:hidden"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.03255) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03255) 1px, transparent 1px)",
-            backgroundPosition: "-10px 0",
-            backgroundSize: "44px 44px",
-          }}
-        />
-        <div className="absolute inset-0 bg-[rgba(3,14,38,0.52)] md:bg-[rgba(3,14,38,0.52)]" />
-        <div className="absolute left-[-18%] top-[96px] h-[180px] w-[180px] rounded-full bg-[#2563eb]/10 blur-[72px] md:hidden" />
-        <div className="absolute right-[-10%] top-[230px] h-[170px] w-[170px] rounded-full bg-[#3b82f6]/8 blur-[80px] md:hidden" />
-        <div className="absolute left-[382px] top-[572px] hidden size-[118px] rounded-full bg-[#2563eb]/8 blur-[36px] md:block" />
-        <div className="absolute left-[1224px] top-[218px] hidden size-[118px] rounded-full bg-[#2563eb]/8 blur-[36px] md:block" />
-        <div className="absolute left-[967px] top-[368px] hidden size-[118px] rounded-full bg-[#2563eb]/8 blur-[36px] md:block" />
-        <div className="absolute left-[49px] top-[129px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
-        <div className="absolute left-[1013px] top-[129px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
-        <div className="absolute left-[531px] top-[73px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
-        <div className="absolute left-[223px] top-[711px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
-        <div className="absolute left-[1196px] top-[865px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
-
-        <div className="fixed left-1/2 top-6 z-50 w-[calc(100%-24px)] max-w-[1280px] -translate-x-1/2 md:w-[1280px]" dir="ltr">
+        <section
+          id="hero"
+          className={[
+            "relative overflow-hidden rounded-b-[24px] bg-[#030e26] pb-10 pt-[112px] md:rounded-b-[24px] md:pb-0 md:pt-0",
+            isArabic ? "md:h-[980px]" : "md:h-[1020px]",
+          ].join(" ")}
+        >
           <div
-            className="relative flex h-[72px] items-center justify-between rounded-[23px] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-200 md:h-[84px] md:px-[30px]"
-            dir={isArabic ? "ltr" : "ltr"}
-            style={mobileNavSurfaceStyle}
-          >
-            <a
-              aria-label="JHC home"
-              className={["inline-flex shrink-0 items-center", isArabic ? "order-2 md:absolute md:right-[30px]" : ""].join(" ")}
-              href="/#hero"
-              onClick={handleLogoClick}
+            className="absolute inset-0 hidden opacity-100 md:block"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,0.0525) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.0525) 1px, transparent 1px)",
+              backgroundPosition: "-18px 0",
+              backgroundSize: "70px 68.94px",
+            }}
+          />
+          <div
+            className="absolute inset-0 opacity-100 md:hidden"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(255,255,255,0.03255) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03255) 1px, transparent 1px)",
+              backgroundPosition: "-10px 0",
+              backgroundSize: "44px 44px",
+            }}
+          />
+          <div className="absolute inset-0 bg-[rgba(3,14,38,0.52)] md:bg-[rgba(3,14,38,0.52)]" />
+          <div className="absolute left-[-18%] top-[96px] h-[180px] w-[180px] rounded-full bg-[#2563eb]/10 blur-[72px] md:hidden" />
+          <div className="absolute right-[-10%] top-[230px] h-[170px] w-[170px] rounded-full bg-[#3b82f6]/8 blur-[80px] md:hidden" />
+          <div className="absolute left-[382px] top-[572px] hidden size-[118px] rounded-full bg-[#2563eb]/8 blur-[36px] md:block" />
+          <div className="absolute left-[1224px] top-[218px] hidden size-[118px] rounded-full bg-[#2563eb]/8 blur-[36px] md:block" />
+          <div className="absolute left-[967px] top-[368px] hidden size-[118px] rounded-full bg-[#2563eb]/8 blur-[36px] md:block" />
+          <div className="absolute left-[49px] top-[129px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
+          <div className="absolute left-[1013px] top-[129px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
+          <div className="absolute left-[531px] top-[73px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
+          <div className="absolute left-[223px] top-[711px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
+          <div className="absolute left-[1196px] top-[865px] hidden h-[307px] w-[288px] rounded-full bg-[#2563eb]/10 blur-[46px] md:block" />
+
+          <div className="fixed left-1/2 top-6 z-50 w-[calc(100%-24px)] max-w-[1280px] -translate-x-1/2 md:w-[1280px]" dir="ltr">
+            <div
+              className="relative flex h-[72px] items-center justify-between rounded-[23px] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-200 md:h-[84px] md:px-[30px]"
+              dir={isArabic ? "ltr" : "ltr"}
+              style={mobileNavSurfaceStyle}
             >
-              <img
-                alt="JHC"
-                className="h-[34px] w-auto md:h-[42px]"
-                src={logo}
-              />
-            </a>
-            <nav
-              className={[
-                "hidden items-center gap-8 text-[12px] font-bold transition-colors duration-200 md:flex",
-                isArabic ? "absolute left-1/2 -translate-x-1/2" : "flex-1 justify-center",
-                isArabic ? "" : "uppercase tracking-[1.7px]",
-              ].join(" ")}
-              style={{
-                color: navOnLight ? "#64748b" : "rgba(255,255,255,0.72)",
-                direction: isArabic ? "rtl" : "ltr",
-              }}
-            >
-              {heroNavSections.map(({ href, label }) => {
-                const isActive = activeSection === href;
-                return (
-                  <a
-                    key={href}
-                    className={[
-                      "font-bold transition-colors duration-200",
-                      isArabic ? "" : "uppercase tracking-[1.7px]",
-                    ].join(" ")}
-                    style={{
-                      color: isActive ? "#2563eb" : navOnLight ? "#64748b" : "rgba(255,255,255,0.72)",
-                    }}
-                    href={href}
-                    onClick={handleNavClick(href)}
-                    aria-current={isActive ? "page" : undefined}
-                  >
-                    <span
+              <a
+                aria-label="JHC home"
+                className={["inline-flex shrink-0 items-center", isArabic ? "order-2 md:absolute md:right-[30px]" : ""].join(" ")}
+                href="/#hero"
+                onClick={handleLogoClick}
+              >
+                <img
+                  alt="JHC"
+                  className="h-[34px] w-auto md:h-[42px]"
+                  src={logo}
+                />
+              </a>
+              <nav
+                className={[
+                  "hidden items-center gap-8 text-[12px] font-bold transition-colors duration-200 md:flex",
+                  isArabic ? "absolute left-1/2 -translate-x-1/2" : "flex-1 justify-center",
+                  isArabic ? "" : "uppercase tracking-[1.7px]",
+                ].join(" ")}
+                style={{
+                  color: navOnLight ? "#64748b" : "rgba(255,255,255,0.72)",
+                  direction: isArabic ? "rtl" : "ltr",
+                }}
+              >
+                {heroNavSections.map(({ href, label }) => {
+                  const isActive = activeSection === href;
+                  return (
+                    <a
+                      key={href}
+                      className={[
+                        "font-bold transition-colors duration-200",
+                        isArabic ? "" : "uppercase tracking-[1.7px]",
+                      ].join(" ")}
                       style={{
-                        ...heroArabicFontStyle,
-                        textDecoration: isActive ? "underline" : "none",
-                        textUnderlineOffset: "10px",
-                        textDecorationThickness: "1.5px",
-                        direction: isArabic ? "rtl" : "ltr",
+                        color: isActive ? "#2563eb" : navOnLight ? "#64748b" : "rgba(255,255,255,0.72)",
                       }}
+                      href={href}
+                      onClick={handleNavClick(href)}
+                      aria-current={isActive ? "page" : undefined}
                     >
-                      {isArabic ? label : label.toUpperCase()}
-                    </span>
-                  </a>
-                );
-              })}
-            </nav>
-            <div
-              className={[
-                "hidden items-center gap-3 md:flex",
-                isArabic ? "md:absolute md:left-[30px]" : "",
-              ].join(" ")}
-            >
-              {isArabic ? (
-                <>
-                  <a
-                    className="w-auto rounded-[14px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] px-7 py-[12px] text-[12px] font-bold uppercase tracking-[1.4px] text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]"
-                    href="/talent-network#application-start"
-                    style={heroArabicFontStyle}
-                  >
-                    {heroCopy.topActions.secondary}
-                  </a>
-                  {languageSwitcher({ language, isArabic, onLight: navOnLight, setLanguage })}
-                </>
-              ) : (
-                <>
-                  {languageSwitcher({ language, isArabic, onLight: navOnLight, setLanguage })}
-                  <a
-                    className="w-auto rounded-[14px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] px-7 py-[12px] text-[12px] font-bold uppercase tracking-[1.4px] text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]"
-                    href="/talent-network#application-start"
-                  >
-                    {heroCopy.topActions.secondary}
-                  </a>
-                </>
-              )}
-            </div>
-            <button
-              aria-controls="mobile-nav-menu"
-              aria-expanded={mobileMenuOpen}
-              aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
-              className={[`${subtleButtonHoverClassName} inline-flex size-11 items-center justify-center rounded-[14px] border border-white/15 bg-white/[0.05] text-white transition-colors duration-200 md:hidden`, isArabic ? "order-1" : "order-2 ml-auto"].join(" ")}
-              style={navOnLight ? { color: "#0B1F4D" } : undefined}
-              onClick={() => setMobileMenuOpen((open) => !open)}
-              type="button"
-            >
-              {mobileMenuOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
-            </button>
-
-            <div
-              className={[
-                "absolute left-0 right-0 top-[calc(100%+10px)] overflow-hidden rounded-[23px] text-white shadow-[0_18px_50px_rgba(3,14,38,0.28)] transition-all duration-300 ease-out md:hidden isolate",
-                mobileMenuOpen
-                  ? "pointer-events-auto translate-y-0 opacity-100"
-                  : "pointer-events-none -translate-y-2 opacity-0",
-              ].join(" ")}
-              id="mobile-nav-menu"
-            >
-              <div
-                className="absolute inset-0 rounded-[23px]"
-                style={mobileDropdownSurfaceStyle}
-              />
-	              <div className="relative z-10 flex flex-col gap-2 px-4 py-4">
-	                <div className="mb-1">
-	                  {languageSwitcher({ language, isArabic, onLight: navOnLight, setLanguage, className: "w-full justify-center" })}
-	                </div>
-	                <nav className={["flex flex-col gap-2", isArabic ? "text-right" : ""].join(" ")} aria-label="Mobile navigation">
-                  {mobileNavSections.map(({ href, label }) => {
-                    const isActive = activeSection === href;
-
-                    return (
-                      <a
-                        key={href}
-                        className={["rounded-[16px] border border-white/10 bg-white/[0.03] px-4 py-4 text-[13px] font-bold transition-colors duration-200", isArabic ? "text-right" : "uppercase tracking-[1.4px]"].join(" ")}
-                        href={href}
-                        onClick={handleNavClick(href)}
-                        aria-current={isActive ? "page" : undefined}
+                      <span
                         style={{
-                          borderColor: isActive
-                            ? navOnLight
-                              ? "#BFDBFE"
-                              : "rgba(96,165,250,0.28)"
-                            : navOnLight
-                              ? "rgba(11,31,77,0.08)"
-                              : "rgba(255,255,255,0.10)",
-                          background: isActive
-                            ? navOnLight
-                              ? "#EFF6FF"
-                              : "rgba(37,99,235,0.18)"
-                            : navOnLight
-                              ? "rgba(255,255,255,0.7)"
-                              : "rgba(255,255,255,0.03)",
-                          color: isActive
-                            ? navOnLight
-                              ? "#0B1F4D"
-                              : "#60a5fa"
-                            : navOnLight
-                              ? "#334155"
-                              : "rgba(255,255,255,0.86)",
-                          fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : undefined,
+                          ...heroArabicFontStyle,
+                          textDecoration: isActive ? "underline" : "none",
+                          textUnderlineOffset: "10px",
+                          textDecorationThickness: "1.5px",
+                          direction: isArabic ? "rtl" : "ltr",
                         }}
                       >
-                        {label}
-                      </a>
-                    );
-                  })}
-                </nav>
+                        {isArabic ? label : label.toUpperCase()}
+                      </span>
+                    </a>
+                  );
+                })}
+              </nav>
+              <div
+                className={[
+                  "hidden items-center gap-3 md:flex",
+                  isArabic ? "md:absolute md:left-[30px]" : "",
+                ].join(" ")}
+              >
+                {isArabic ? (
+                  <>
+                    <a
+                      className="w-auto rounded-[14px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] px-7 py-[12px] text-[12px] font-bold uppercase tracking-[1.4px] text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]"
+                      href="/talent-network#application-start"
+                      style={heroArabicFontStyle}
+                    >
+                      {heroCopy.topActions.secondary}
+                    </a>
+                    {languageSwitcher({ language, isArabic, onLight: navOnLight, setLanguage })}
+                  </>
+                ) : (
+                  <>
+                    {languageSwitcher({ language, isArabic, onLight: navOnLight, setLanguage })}
+                    <a
+                      className="w-auto rounded-[14px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] px-7 py-[12px] text-[12px] font-bold uppercase tracking-[1.4px] text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]"
+                      href="/talent-network#application-start"
+                    >
+                      {heroCopy.topActions.secondary}
+                    </a>
+                  </>
+                )}
+              </div>
+              <button
+                aria-controls="mobile-nav-menu"
+                aria-expanded={mobileMenuOpen}
+                aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+                className={[`${subtleButtonHoverClassName} inline-flex size-11 items-center justify-center rounded-[14px] border border-white/15 bg-white/[0.05] text-white transition-colors duration-200 md:hidden`, isArabic ? "order-1" : "order-2 ml-auto"].join(" ")}
+                style={navOnLight ? { color: "#0B1F4D" } : undefined}
+                onClick={() => setMobileMenuOpen((open) => !open)}
+                type="button"
+              >
+                {mobileMenuOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
+              </button>
 
-                <div className="mt-2 border-t border-white/10 pt-4">
-                  <div className="flex flex-col gap-3">
-                    <Link
-                      className="inline-flex h-[54px] items-center justify-center rounded-[18px] border border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] px-5 text-[12px] font-bold uppercase tracking-[1.3px] text-white/90 backdrop-blur-[14px]"
-                      onClick={() => setMobileMenuOpen(false)}
-                      to="/talent-network#application-start"
-                      style={
-                        isArabic
-                          ? {
+              <div
+                className={[
+                  "absolute left-0 right-0 top-[calc(100%+10px)] overflow-hidden rounded-[23px] text-white shadow-[0_18px_50px_rgba(3,14,38,0.28)] transition-all duration-300 ease-out md:hidden isolate",
+                  mobileMenuOpen
+                    ? "pointer-events-auto translate-y-0 opacity-100"
+                    : "pointer-events-none -translate-y-2 opacity-0",
+                ].join(" ")}
+                id="mobile-nav-menu"
+              >
+                <div
+                  className="absolute inset-0 rounded-[23px]"
+                  style={mobileDropdownSurfaceStyle}
+                />
+                <div className="relative z-10 flex flex-col gap-2 px-4 py-4">
+                  <div className="mb-1">
+                    {languageSwitcher({ language, isArabic, onLight: navOnLight, setLanguage, className: "w-full justify-center" })}
+                  </div>
+                  <nav className={["flex flex-col gap-2", isArabic ? "text-right" : ""].join(" ")} aria-label="Mobile navigation">
+                    {mobileNavSections.map(({ href, label }) => {
+                      const isActive = activeSection === href;
+
+                      return (
+                        <a
+                          key={href}
+                          className={["rounded-[16px] border border-white/10 bg-white/[0.03] px-4 py-4 text-[13px] font-bold transition-colors duration-200", isArabic ? "text-right" : "uppercase tracking-[1.4px]"].join(" ")}
+                          href={href}
+                          onClick={handleNavClick(href)}
+                          aria-current={isActive ? "page" : undefined}
+                          style={{
+                            borderColor: isActive
+                              ? navOnLight
+                                ? "#BFDBFE"
+                                : "rgba(96,165,250,0.28)"
+                              : navOnLight
+                                ? "rgba(11,31,77,0.08)"
+                                : "rgba(255,255,255,0.10)",
+                            background: isActive
+                              ? navOnLight
+                                ? "#EFF6FF"
+                                : "rgba(37,99,235,0.18)"
+                              : navOnLight
+                                ? "rgba(255,255,255,0.7)"
+                                : "rgba(255,255,255,0.03)",
+                            color: isActive
+                              ? navOnLight
+                                ? "#0B1F4D"
+                                : "#60a5fa"
+                              : navOnLight
+                                ? "#334155"
+                                : "rgba(255,255,255,0.86)",
+                            fontFamily: isArabic ? "'Cairo', system-ui, sans-serif" : undefined,
+                          }}
+                        >
+                          {label}
+                        </a>
+                      );
+                    })}
+                  </nav>
+
+                  <div className="mt-2 border-t border-white/10 pt-4">
+                    <div className="flex flex-col gap-3">
+                      <Link
+                        className="inline-flex h-[54px] items-center justify-center rounded-[18px] border border-white/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] px-5 text-[12px] font-bold uppercase tracking-[1.3px] text-white/90 backdrop-blur-[14px]"
+                        onClick={() => setMobileMenuOpen(false)}
+                        to="/talent-network#application-start"
+                        style={
+                          isArabic
+                            ? {
                               ...(navOnLight
                                 ? {
-                                    borderColor: "rgba(11,31,77,0.12)",
-                                    background: "linear-gradient(180deg,rgba(255,255,255,0.88),rgba(248,250,252,0.82))",
-                                    color: "#0B1F4D",
-                                  }
+                                  borderColor: "rgba(11,31,77,0.12)",
+                                  background: "linear-gradient(180deg,rgba(255,255,255,0.88),rgba(248,250,252,0.82))",
+                                  color: "#0B1F4D",
+                                }
                                 : {}),
                               fontFamily: "'Cairo', system-ui, sans-serif",
                               direction: "rtl",
                             }
-                          : navOnLight
-                            ? {
+                            : navOnLight
+                              ? {
                                 borderColor: "rgba(11,31,77,0.12)",
                                 background: "linear-gradient(180deg,rgba(255,255,255,0.88),rgba(248,250,252,0.82))",
                                 color: "#0B1F4D",
                               }
-                            : undefined
-                      }
-                    >
-                      {heroCopy.mobileMenu.secondaryCta}
-                    </Link>
-                    <a
-                      className="inline-flex h-[54px] items-center justify-center rounded-[18px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] px-5 text-[12px] font-bold uppercase tracking-[1.3px] text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)]"
-                      href="#contact"
-                      onClick={handleNavClick("#contact")}
-                      style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif", direction: "rtl" } : undefined}
-                    >
-                      {heroCopy.mobileMenu.primaryCta}
-                    </a>
+                              : undefined
+                        }
+                      >
+                        {heroCopy.mobileMenu.secondaryCta}
+                      </Link>
+                      <a
+                        className="inline-flex h-[54px] items-center justify-center rounded-[18px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] px-5 text-[12px] font-bold uppercase tracking-[1.3px] text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)]"
+                        href="#contact"
+                        onClick={handleNavClick("#contact")}
+                        style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif", direction: "rtl" } : undefined}
+                      >
+                        {heroCopy.mobileMenu.primaryCta}
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="relative z-10 w-full max-w-none px-4 md:hidden">
-          <div className="w-full max-w-none py-2 text-center">
-            <div
-              className={[
-                "mx-auto text-[34px] font-extrabold leading-[41px] tracking-[-1.1px] text-white",
-                isArabic ? "max-w-[352px]" : "max-w-[320px]",
-              ].join(" ")}
-            >
-              {isArabic ? (
-                <span
-                  style={{
-                    ...heroArabicFontStyle,
-                    fontSize: "37px",
-                    lineHeight: "48px",
-                    letterSpacing: "-0.7px",
-                    textWrap: "balance",
-                  }}
-                >
-                  <span className="text-white">نماذج تشغيل استراتيجية</span>{" "}
-                  <span className="text-[#3b82f6] whitespace-nowrap">تقود نموًا حقيقيًا.</span>
-                </span>
-              ) : (
-                <>
-                  Strategic{"\u00A0"}Operating Models <span className="text-[#3b82f6]">{heroCopy.main.highlightedText}</span>
-                </>
-              )}
-            </div>
-
-            <p className="mt-5 text-[16px] leading-[29px] text-[#b8c1d1]" style={heroArabicFontStyle}>
-              {heroCopy.main.description}
-            </p>
-
-            <div className="mt-6 flex flex-col gap-3 min-[390px]:flex-row min-[390px]:gap-3">
-              <a className={mobileHeroPrimaryButtonClass} href="#contact" style={heroArabicFontStyle}>
-                {heroCopy.main.primaryCta}
-              </a>
-              <Link className={mobileHeroSecondaryButtonClass} style={heroArabicFontStyle} to="/talent-network#application-start">
-                {heroCopy.main.secondaryCta}
-              </Link>
-            </div>
-
-            <div className={["mt-8 grid grid-cols-2 gap-3", isArabic ? "text-right" : "text-left"].join(" ")}>
-              {metrics.map(({ value, label, icon: Icon }, index) => {
-                const metricDisplayValue = isArabic ? getArabicMobileMetricValue(value) : value;
-                const metricCount = getMetricCountParts(metricDisplayValue);
-
-                return (
-                  <div
-                    key={label}
-                    className={[
-                      mobileHeroMetricCardClass,
-                      index === metrics.length - 1 ? "col-span-2 flex items-center gap-4 py-3" : "",
-                    ].join(" ")}
+          <div className="relative z-10 w-full max-w-none px-4 md:hidden">
+            <div className="w-full max-w-none py-2 text-center">
+              <div
+                className={[
+                  "mx-auto text-[34px] font-extrabold leading-[41px] tracking-[-1.1px] text-white",
+                  isArabic ? "max-w-[352px]" : "max-w-[320px]",
+                ].join(" ")}
+              >
+                {isArabic ? (
+                  <span
+                    style={{
+                      ...heroArabicFontStyle,
+                      fontSize: "37px",
+                      lineHeight: "48px",
+                      letterSpacing: "-0.7px",
+                      textWrap: "balance",
+                    }}
                   >
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-[#2563eb]/80 bg-[#112246] text-[#60a5fa]">
-                      <Icon size={16} strokeWidth={1.85} />
-                    </div>
-                    <div
-                      className={[index === metrics.length - 1 ? "min-w-0" : "", isArabic ? "text-right" : ""].join(" ")}
-                      dir={isArabic ? "rtl" : "ltr"}
-                    >
-                      <p
-                        className={[
-                          "whitespace-nowrap text-[26px] font-extrabold leading-[26px] tracking-[-0.5px] text-white",
-                          index === metrics.length - 1 ? "" : "mt-3",
-                        ].join(" ")}
-                        style={isArabic ? { ...heroArabicFontStyle, direction: "rtl", unicodeBidi: "plaintext" } : undefined}
-                      >
-                        <CountUp
-                          className="inline-block"
-                          delay={0}
-                          duration={1.4}
-                          from={metricCount.from}
-                          prefix={metricCount.prefix}
-                          separator=","
-                          suffix={metricCount.suffix}
-                          to={metricCount.to}
-                        />
-                      </p>
-                      <p
-                        className="mt-[6px] text-[13px] leading-[20px] text-[#c0c8d8]"
-                        style={isArabic ? { ...heroArabicFontStyle, direction: "rtl", unicodeBidi: "plaintext" } : undefined}
-                      >
-                        {label}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                    <span className="text-white">نماذج تشغيل استراتيجية</span>{" "}
+                    <span className="text-[#3b82f6] whitespace-nowrap">تقود نموًا حقيقيًا.</span>
+                  </span>
+                ) : (
+                  <>
+                    Strategic{"\u00A0"}Operating Models{" "}<span className="text-[#3b82f6]">That Drive {heroCopy.main.highlightedText}</span>
+                  </>
+                )}
+              </div>
 
-            {/* TEMPORARILY DISABLED - Hero logo ticker will be restored later
+              <p className="mt-5 text-[16px] leading-[29px] text-[#b8c1d1]" style={heroArabicFontStyle}>
+                {heroCopy.main.description}
+              </p>
+
+              <div className="mt-6 flex flex-col gap-3 min-[390px]:flex-row min-[390px]:gap-3">
+                <a className={mobileHeroPrimaryButtonClass} href="#contact" style={heroArabicFontStyle}>
+                  {heroCopy.main.primaryCta}
+                </a>
+                <Link className={mobileHeroSecondaryButtonClass} style={heroArabicFontStyle} to="/talent-network#application-start">
+                  {heroCopy.main.secondaryCta}
+                </Link>
+              </div>
+
+              <div className={["mt-8 grid grid-cols-2 gap-3", isArabic ? "text-right" : "text-left"].join(" ")}>
+                {metrics.map(({ value, label, icon: Icon }, index) => {
+                  const metricDisplayValue = isArabic ? getArabicMobileMetricValue(value) : value;
+                  const metricCount = getMetricCountParts(metricDisplayValue);
+
+                  return (
+                    <div
+                      key={label}
+                      className={[
+                        mobileHeroMetricCardClass,
+                        index === metrics.length - 1 ? "col-span-2 flex items-center gap-4 py-3" : "",
+                      ].join(" ")}
+                    >
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-[#2563eb]/80 bg-[#112246] text-[#60a5fa]">
+                        <Icon size={16} strokeWidth={1.85} />
+                      </div>
+                      <div
+                        className={[index === metrics.length - 1 ? "min-w-0" : "", isArabic ? "text-right" : ""].join(" ")}
+                        dir={isArabic ? "rtl" : "ltr"}
+                      >
+                        <p
+                          className={[
+                            "whitespace-nowrap text-[26px] font-extrabold leading-[26px] tracking-[-0.5px] text-white",
+                            index === metrics.length - 1 ? "" : "mt-3",
+                          ].join(" ")}
+                          style={isArabic ? { ...heroArabicFontStyle, direction: "rtl", unicodeBidi: "plaintext" } : undefined}
+                        >
+                          <CountUp
+                            className="inline-block"
+                            delay={0}
+                            duration={1.4}
+                            from={metricCount.from}
+                            prefix={metricCount.prefix}
+                            separator=","
+                            suffix={metricCount.suffix}
+                            to={metricCount.to}
+                          />
+                        </p>
+                        <p
+                          className="mt-[6px] text-[13px] leading-[20px] text-[#c0c8d8]"
+                          style={isArabic ? { ...heroArabicFontStyle, direction: "rtl", unicodeBidi: "plaintext" } : undefined}
+                        >
+                          {label}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* TEMPORARILY DISABLED - Hero logo ticker will be restored later
             <div className="mt-8 text-left">
               <p className="whitespace-nowrap text-[9px] font-semibold uppercase tracking-[2px] text-[#cbd5e1]" style={heroArabicFontStyle}>
                 {heroCopy.trustBanner.text}
@@ -1616,160 +1913,160 @@ export default function JhcLandingPage() {
               </div>
             </div>
             */}
-          </div>
-        </div>
-
-        <div className="relative mx-auto mt-[172px] hidden w-[1301px] md:block">
-          <div className="flex items-start justify-between">
-            <div className={isArabic ? "w-[634px] text-right" : "w-[634px]"}>
-              <div className="inline-flex h-[42px] items-center rounded-[11px] border border-[#2563eb] bg-[rgba(14,29,67,0.7)] px-[16px] backdrop-blur-[18px]">
-                <span className="text-[12px] font-semibold uppercase tracking-[3px] text-white" style={heroArabicFontStyle}>
-                  {heroCopy.main.eyebrow}
-                </span>
-              </div>
-
-              <h1
-                className="mt-[38px] text-[60px] font-extrabold leading-[72px] tracking-[-1.8px] text-white"
-                style={isArabic ? heroArabicFontStyle : undefined}
-              >
-                {isArabic ? (
-                  <>
-                    نماذج تشغيل
-                    <br />
-                    استراتيجية <span className="text-[#3b82f6]">تقود</span>
-                    <br />
-                    <span className="text-[#3b82f6]">نمواً حقيقياً.</span>
-                  </>
-                ) : (
-                  <>
-                    Strategic Operating
-                    <br />
-                    Models <span className="text-[#3b82f6]">That Drive</span>
-                    <br />
-                    <span className="text-[#3b82f6]">{heroCopy.main.highlightedText}</span>
-                  </>
-                )}
-              </h1>
-
-              <p
-                className="mt-[38px] text-[17px] leading-[32px] text-[#b8c1d1]"
-                style={isArabic ? { ...heroArabicFontStyle, maxWidth: "610px" } : { maxWidth: "610px" }}
-              >
-                {heroCopy.main.description}
-              </p>
-
-              <div className="mt-[40px] flex gap-[22px]">
-                <a
-                  className={[
-                    "inline-flex h-[66px] items-center rounded-[22px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]",
-                    isArabic ? "w-fit justify-center gap-3 px-10" : "min-w-[232px] justify-between pl-[18px] pr-[17px]",
-                  ].join(" ")}
-                  href="#contact"
-                  style={heroArabicFontStyle}
-                >
-                  {heroCopy.main.primaryCta}
-                  <span className="flex size-[33px] items-center justify-center rounded-full border border-white/20 bg-white/10">
-                    {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
-                  </span>
-                </a>
-                <Link
-                  className={[
-                    "inline-flex h-[66px] items-center rounded-[22px] border border-white/25 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] text-[14px] font-medium text-white/90 backdrop-blur-[12px]",
-                    isArabic ? "w-fit justify-center gap-3 px-10" : "min-w-[220px] justify-between pl-[18px] pr-[17px]",
-                  ].join(" ")}
-                  style={heroArabicFontStyle}
-                  to="/talent-network#application-start"
-                >
-                  {heroCopy.main.secondaryCta}
-                  <span className="flex size-[33px] items-center justify-center rounded-full border border-white/15">
-                    {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} className="rotate-[-45deg]" />}
-                  </span>
-                </Link>
-              </div>
-            </div>
-
-            <div className="relative mt-[34px] h-[485px] w-[575px]">
-              <div className="absolute left-[90px] top-[10px] size-[474px] rounded-full border-[4px] border-[#2563eb]/90">
-                <div className="absolute inset-[1px] rounded-full border border-[#60a5fa]/10" />
-              </div>
-              <div className="absolute left-[327px] top-[247px] will-change-transform">
-                {heroOrbitCards.map(({ title, subtitle, icon, width }, index) => (
-                  <div
-                    key={title}
-                    ref={(node) => {
-                      orbitCardRefs.current[index] = node;
-                    }}
-                    className="absolute left-0 top-0 will-change-transform"
-                    style={{ width: `${width}px`, transform: "translate3d(0,0,0) translate(-50%, -50%)" }}
-                  >
-                    {statChip(title, subtitle, icon, "")}
-                  </div>
-                ))}
-              </div>
-              <div className="absolute left-1/2 top-1/2 size-[124px] -translate-x-1/2 -translate-y-1/2">
-                <div className="absolute inset-[-18px] rounded-full bg-[#2563eb]/8 blur-[22px]" />
-                <img
-                  alt="JHC logo"
-                  className="reveal-image absolute left-1/2 top-1/2 h-auto w-[112px]"
-                  src={heroCenterLogo}
-                  style={{ animation: "hero-logo-pulse 3.2s ease-in-out infinite", marginLeft: "40px" }}
-                />
-              </div>
             </div>
           </div>
 
-          <div className="mt-[70px] grid h-[129px] grid-cols-5 items-center rounded-[24px] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.02))] px-8 backdrop-blur-[20px]">
-            {metrics.map(({ value, label, icon: Icon }, index) => {
-              const metricDisplayValue = isArabic ? getArabicMobileMetricValue(value) : value;
-              const metricCount = getMetricCountParts(metricDisplayValue);
+          <div className="relative mx-auto mt-[172px] hidden w-[1301px] md:block">
+            <div className="flex items-start justify-between">
+              <div className={isArabic ? "w-[634px] text-right" : "w-[634px]"}>
+                <div className="inline-flex h-[42px] items-center rounded-[11px] border border-[#2563eb] bg-[rgba(14,29,67,0.7)] px-[16px] backdrop-blur-[18px]">
+                  <span className="text-[12px] font-semibold uppercase tracking-[3px] text-white" style={heroArabicFontStyle}>
+                    {heroCopy.main.eyebrow}
+                  </span>
+                </div>
 
-              return (
-                <div
-                  key={label}
-                  className={[
-                    "flex h-[107px] min-w-0 items-center px-5",
-                    index > 0 ? (isArabic ? "border-r border-white/10" : "border-l border-white/10") : "",
-                  ].join(" ")}
+                <h1
+                  className="mt-[38px] text-[60px] font-extrabold leading-[72px] tracking-[-1.8px] text-white"
+                  style={isArabic ? heroArabicFontStyle : undefined}
                 >
-                  <div
+                  {isArabic ? (
+                    <>
+                      نماذج تشغيل
+                      <br />
+                      استراتيجية <span className="text-[#3b82f6]">تقود</span>
+                      <br />
+                      <span className="text-[#3b82f6]">نمواً حقيقياً.</span>
+                    </>
+                  ) : (
+                    <>
+                      Strategic Operating
+                      <br />
+                      Models <span className="text-[#3b82f6]">That Drive</span>
+                      <br />
+                      <span className="text-[#3b82f6]">{heroCopy.main.highlightedText}</span>
+                    </>
+                  )}
+                </h1>
+
+                <p
+                  className="mt-[38px] text-[17px] leading-[32px] text-[#b8c1d1]"
+                  style={isArabic ? { ...heroArabicFontStyle, maxWidth: "610px" } : { maxWidth: "610px" }}
+                >
+                  {heroCopy.main.description}
+                </p>
+
+                <div className="mt-[40px] flex gap-[22px]">
+                  <a
                     className={[
-                      "flex size-[40px] shrink-0 items-center justify-center rounded-full border border-[#2563eb]/80 bg-[#112246] text-[#60a5fa]",
-                      isArabic ? "ml-[14px]" : "mr-[14px]",
+                      "inline-flex h-[66px] items-center rounded-[22px] bg-[linear-gradient(180deg,#4f8cff,#2563eb)] text-[14px] font-semibold text-white shadow-[0_6px_18px_rgba(37,99,235,0.22)] transition-[box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:shadow-[0_14px_34px_rgba(37,99,235,0.42)]",
+                      isArabic ? "w-fit justify-center gap-3 px-10" : "min-w-[232px] justify-between pl-[18px] pr-[17px]",
+                    ].join(" ")}
+                    href="#contact"
+                    style={heroArabicFontStyle}
+                  >
+                    {heroCopy.main.primaryCta}
+                    <span className="flex size-[33px] items-center justify-center rounded-full border border-white/20 bg-white/10">
+                      {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
+                    </span>
+                  </a>
+                  <Link
+                    className={[
+                      "inline-flex h-[66px] items-center rounded-[22px] border border-white/25 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] text-[14px] font-medium text-white/90 backdrop-blur-[12px]",
+                      isArabic ? "w-fit justify-center gap-3 px-10" : "min-w-[220px] justify-between pl-[18px] pr-[17px]",
+                    ].join(" ")}
+                    style={heroArabicFontStyle}
+                    to="/talent-network#application-start"
+                  >
+                    {heroCopy.main.secondaryCta}
+                    <span className="flex size-[33px] items-center justify-center rounded-full border border-white/15">
+                      {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} className="rotate-[-45deg]" />}
+                    </span>
+                  </Link>
+                </div>
+              </div>
+
+              <div className="relative mt-[34px] h-[485px] w-[575px]">
+                <div className="absolute left-[90px] top-[10px] size-[474px] rounded-full border-[4px] border-[#2563eb]/90">
+                  <div className="absolute inset-[1px] rounded-full border border-[#60a5fa]/10" />
+                </div>
+                <div className="absolute left-[327px] top-[247px] will-change-transform">
+                  {heroOrbitCards.map(({ title, subtitle, icon, width }, index) => (
+                    <div
+                      key={title}
+                      ref={(node) => {
+                        orbitCardRefs.current[index] = node;
+                      }}
+                      className="absolute left-0 top-0 will-change-transform"
+                      style={{ width: `${width}px`, transform: "translate3d(0,0,0) translate(-50%, -50%)" }}
+                    >
+                      {statChip(title, subtitle, icon, "")}
+                    </div>
+                  ))}
+                </div>
+                <div className="absolute left-1/2 top-1/2 size-[124px] -translate-x-1/2 -translate-y-1/2">
+                  <div className="absolute inset-[-18px] rounded-full bg-[#2563eb]/8 blur-[22px]" />
+                  <img
+                    alt="JHC logo"
+                    className="reveal-image absolute left-1/2 top-1/2 h-auto w-[112px]"
+                    src={heroCenterLogo}
+                    style={{ animation: "hero-logo-pulse 3.2s ease-in-out infinite", marginLeft: "40px" }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-[70px] grid h-[129px] grid-cols-5 items-center rounded-[24px] border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.02))] px-8 backdrop-blur-[20px]">
+              {metrics.map(({ value, label, icon: Icon }, index) => {
+                const metricDisplayValue = isArabic ? getArabicMobileMetricValue(value) : value;
+                const metricCount = getMetricCountParts(metricDisplayValue);
+
+                return (
+                  <div
+                    key={label}
+                    className={[
+                      "flex h-[107px] min-w-0 items-center px-5",
+                      index > 0 ? (isArabic ? "border-r border-white/10" : "border-l border-white/10") : "",
                     ].join(" ")}
                   >
-                    <Icon size={16} strokeWidth={1.85} />
-                  </div>
-                  <div className="min-w-0 max-w-[165px]">
-                    <p className="whitespace-nowrap text-[28px] font-extrabold leading-[28px] tracking-[-0.6px] text-white" style={isArabic ? heroArabicFontStyle : undefined}>
-                      <CountUp
-                        className="inline-block"
-                        delay={0}
-                        duration={1.4}
-                        from={metricCount.from}
-                        prefix={metricCount.prefix}
-                        separator=","
-                        suffix={metricCount.suffix}
-                        to={metricCount.to}
-                      />
-                    </p>
-                    <p
+                    <div
                       className={[
-                        "mt-[7px] text-[13px] leading-[19px] text-[#c0c8d8]",
-                        label === "Strategic Partnerships" || label === "Operational Cost Savings"
-                          ? "whitespace-nowrap text-[12px]"
-                          : "whitespace-normal",
+                        "flex size-[40px] shrink-0 items-center justify-center rounded-full border border-[#2563eb]/80 bg-[#112246] text-[#60a5fa]",
+                        isArabic ? "ml-[14px]" : "mr-[14px]",
                       ].join(" ")}
-                      style={isArabic ? heroArabicFontStyle : undefined}
                     >
-                      {label}
-                    </p>
+                      <Icon size={16} strokeWidth={1.85} />
+                    </div>
+                    <div className="min-w-0 max-w-[165px]">
+                      <p className="whitespace-nowrap text-[28px] font-extrabold leading-[28px] tracking-[-0.6px] text-white" style={isArabic ? heroArabicFontStyle : undefined}>
+                        <CountUp
+                          className="inline-block"
+                          delay={0}
+                          duration={1.4}
+                          from={metricCount.from}
+                          prefix={metricCount.prefix}
+                          separator=","
+                          suffix={metricCount.suffix}
+                          to={metricCount.to}
+                        />
+                      </p>
+                      <p
+                        className={[
+                          "mt-[7px] text-[13px] leading-[19px] text-[#c0c8d8]",
+                          label === "Strategic Partnerships" || label === "Operational Cost Savings"
+                            ? "whitespace-nowrap text-[12px]"
+                            : "whitespace-normal",
+                        ].join(" ")}
+                        style={isArabic ? heroArabicFontStyle : undefined}
+                      >
+                        {label}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
 
-          {/* TEMPORARILY DISABLED - Hero logo ticker will be restored later
+            {/* TEMPORARILY DISABLED - Hero logo ticker will be restored later
           <div className="mt-[64px] mb-[48px]">
             <div className="flex items-center gap-[18px]">
               <p className="text-[11px] font-semibold uppercase tracking-[4px] text-[#cbd5e1]">
@@ -1782,8 +2079,8 @@ export default function JhcLandingPage() {
             </div>
           </div>
           */}
-        </div>
-      </section>
+          </div>
+        </section>
       </div>
 
       <main className="w-full max-w-none min-w-0 overflow-x-hidden bg-[#f8fafc] pb-20">
@@ -1795,12 +2092,12 @@ export default function JhcLandingPage() {
                 style={
                   isArabic
                     ? {
-                        ...heroArabicFontStyle,
-                        letterSpacing: "0",
-                        textTransform: "none",
-                        fontKerning: "normal",
-                        fontFeatureSettings: "normal",
-                      }
+                      ...heroArabicFontStyle,
+                      letterSpacing: "0",
+                      textTransform: "none",
+                      fontKerning: "normal",
+                      fontFeatureSettings: "normal",
+                    }
                     : undefined
                 }
               >
@@ -1832,7 +2129,7 @@ export default function JhcLandingPage() {
               <p className="text-[16px] leading-[28px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
                 {isArabic
                   ? operatingModelCopy.description
-                  : "We don&apos;t just place talent we redesign how organizations operate. JHC brings 15+ years of on-the-ground GCC expertise to architect human capital frameworks that are resilient, compliant, and built for sustainable growth."}
+                  : "We don't just place talent we redesign how organizations operate. JHC brings 15+ years of on-the-ground GCC expertise to architect human capital frameworks that are resilient, compliant, and built for sustainable growth."}
               </p>
               <p className="mt-5 text-[16px] leading-[28px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
                 {isArabic
@@ -1921,7 +2218,7 @@ export default function JhcLandingPage() {
               <div className="flex items-center px-[88px]">
                 <div className="max-w-[462px]">
                   <p className="text-[16px] leading-[26px] text-[#64748b] [word-spacing:0.2px]">
-                    We don&apos;t just place talent we redesign how organizations operate. JHC brings
+                    We don't just place talent we redesign how organizations operate. JHC brings
                     15+ years of on-the-ground GCC expertise to architect human capital frameworks
                     that are resilient, compliant, and built for sustainable growth.
                   </p>
@@ -2002,57 +2299,57 @@ export default function JhcLandingPage() {
           </div>
 
           <div className="hidden rounded-[24px] border border-[#dbe3f0] bg-white px-14 py-14 md:block">
-          <div className="flex justify-between border-b border-[#e2e8f0] pb-[58px]" dir={isArabic ? "rtl" : "ltr"}>
-            <div className={["w-[522px]", isArabic ? "text-right" : ""].join(" ")}>
-              <p className="text-[16px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
-                {whyJhcCopy.eyebrow}
-              </p>
-              <h2 className="mt-4 text-[42px] font-extrabold leading-[50px] tracking-[-1.2px] text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
-                <span className="whitespace-nowrap">{whyJhcCopy.titleLineOne}</span>
-                <br />
-                {isArabic ? <span className="text-[#2563eb]">JHC؟</span> : <>{whyJhcCopy.titleLineTwo} <span className="text-[#2563eb]">JHC</span></>}
-              </h2>
-            </div>
-            <div className={["w-[384px] pt-[6px]", isArabic ? "text-right" : ""].join(" ")}>
-              <p className="text-[16px] leading-[26px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
-                {whyJhcCopy.intro}
-              </p>
-              <a
-                className="mt-4 inline-flex items-center gap-2 text-[16px] font-semibold text-[#2563eb]"
-                href="#contact"
-                style={isArabic ? heroArabicFontStyle : undefined}
-              >
-                {whyJhcCopy.cta}
-                {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
-              </a>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3">
-            {featureCards.map(({ title, description, bullets, icon: Icon }, index) => (
-              <div
-                key={title}
-                className={[
-                  `${cardHoverClassName} min-h-[396px] px-12 py-12`,
-                  index < 2 ? (isArabic ? "border-l border-[#e2e8f0]" : "border-r border-[#e2e8f0]") : "",
-                ].join(" ")}
-              >
-                <div className="flex size-[52px] items-center justify-center rounded-full border border-[#dbeafe] bg-[#eff6ff] text-[#2563eb]">
-                  <Icon size={24} strokeWidth={1.8} />
-                </div>
-                <h3 className={["mt-6 whitespace-nowrap text-[23px] font-bold leading-[23px] text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
-                <p className={["mt-3 text-[14px] leading-[23px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
-                <ul className={["mt-6 space-y-3 text-[14px] leading-5 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
-                  {bullets.map((bullet) => (
-                    <li key={bullet} className={["flex items-start gap-[10px]", isArabic ? "text-right" : ""].join(" ")}>
-                      <CheckCircle2 size={16} className="mt-[2px] shrink-0 text-[#2563eb]" />
-                      <span className={isArabic ? "flex-1 text-right" : ""} style={isArabic ? heroArabicFontStyle : undefined}>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
+            <div className="flex justify-between border-b border-[#e2e8f0] pb-[58px]" dir={isArabic ? "rtl" : "ltr"}>
+              <div className={["w-[522px]", isArabic ? "text-right" : ""].join(" ")}>
+                <p className="text-[16px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {whyJhcCopy.eyebrow}
+                </p>
+                <h2 className="mt-4 text-[42px] font-extrabold leading-[50px] tracking-[-1.2px] text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  <span className="whitespace-nowrap">{whyJhcCopy.titleLineOne}</span>
+                  <br />
+                  {isArabic ? <span className="text-[#2563eb]">JHC؟</span> : <>{whyJhcCopy.titleLineTwo} <span className="text-[#2563eb]">JHC</span></>}
+                </h2>
               </div>
-            ))}
-          </div>
+              <div className={["w-[384px] pt-[6px]", isArabic ? "text-right" : ""].join(" ")}>
+                <p className="text-[16px] leading-[26px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {whyJhcCopy.intro}
+                </p>
+                <a
+                  className="mt-4 inline-flex items-center gap-2 text-[16px] font-semibold text-[#2563eb]"
+                  href="#contact"
+                  style={isArabic ? heroArabicFontStyle : undefined}
+                >
+                  {whyJhcCopy.cta}
+                  {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
+                </a>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3">
+              {featureCards.map(({ title, description, bullets, icon: Icon }, index) => (
+                <div
+                  key={title}
+                  className={[
+                    `${cardHoverClassName} min-h-[396px] px-12 py-12`,
+                    index < 2 ? (isArabic ? "border-l border-[#e2e8f0]" : "border-r border-[#e2e8f0]") : "",
+                  ].join(" ")}
+                >
+                  <div className="flex size-[52px] items-center justify-center rounded-full border border-[#dbeafe] bg-[#eff6ff] text-[#2563eb]">
+                    <Icon size={24} strokeWidth={1.8} />
+                  </div>
+                  <h3 className={["mt-6 whitespace-nowrap text-[23px] font-bold leading-[23px] text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
+                  <p className={["mt-3 text-[14px] leading-[23px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
+                  <ul className={["mt-6 space-y-3 text-[14px] leading-5 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
+                    {bullets.map((bullet) => (
+                      <li key={bullet} className={["flex items-start gap-[10px]", isArabic ? "text-right" : ""].join(" ")}>
+                        <CheckCircle2 size={16} className="mt-[2px] shrink-0 text-[#2563eb]" />
+                        <span className={isArabic ? "flex-1 text-right" : ""} style={isArabic ? heroArabicFontStyle : undefined}>{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -2110,67 +2407,67 @@ export default function JhcLandingPage() {
           </div>
 
           <div className="hidden rounded-[24px] border border-[#dbe3f0] bg-white px-0 py-0 md:block">
-          <div className="flex items-start justify-between px-14 pb-8 pt-14" dir={isArabic ? "rtl" : "ltr"}>
-            <div className={isArabic ? "text-right" : ""}>
-              <p className="text-[16px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
-                {servicesCopy.eyebrow}
-              </p>
-              <h2 className="mt-4 text-[48px] font-extrabold leading-[48px] tracking-[-1.2px] text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
-                {servicesCopy.title}
-              </h2>
-            </div>
-            <div className={["w-[384px]", isArabic ? "text-right" : ""].join(" ")}>
-              <p className="text-[16px] leading-[26px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
-                {servicesCopy.intro}
-              </p>
-              <a
-                className="mt-4 inline-flex h-10 items-center gap-2 rounded-[16px] bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)]"
-                href="#contact"
-                style={isArabic ? heroArabicFontStyle : undefined}
-              >
-                {servicesCopy.topCta}
-                {isArabic ? <ArrowLeft size={12} /> : null}
-              </a>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 border-t border-[#e2e8f0]">
-            {services.map(({ number, title, description, icon: Icon }, index) => (
-              <div
-                key={title}
-                className={[
-                  `${cardHoverClassName} min-h-[184px] border-[#e2e8f0] px-8 py-7`,
-                  index % 3 !== 2 ? (isArabic ? "border-l" : "border-r") : "",
-                  index < 3 ? "border-b" : "",
-                ].join(" ")}
-                dir={isArabic ? "rtl" : "ltr"}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex size-8 items-center justify-center rounded-full border border-[#dbeafe] bg-[#eff6ff] text-[#2563eb]">
-                    <Icon size={15} strokeWidth={1.8} />
-                  </div>
-                  <span className="text-[24px] font-semibold text-[#cbd5e1]">{number}</span>
-                </div>
-                <h3 className={["mt-6 text-[16px] font-bold leading-6 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
-                <p className={["mt-2 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
-                <Link className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined} to={servicePageRoutes[index]}>
-                  {servicesCopy.cardCta}
-                  {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
-                </Link>
+            <div className="flex items-start justify-between px-14 pb-8 pt-14" dir={isArabic ? "rtl" : "ltr"}>
+              <div className={isArabic ? "text-right" : ""}>
+                <p className="text-[16px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {servicesCopy.eyebrow}
+                </p>
+                <h2 className="mt-4 text-[48px] font-extrabold leading-[48px] tracking-[-1.2px] text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {servicesCopy.title}
+                </h2>
               </div>
-            ))}
-            <div className={["flex min-h-[184px] flex-col items-center justify-center gap-4 px-8 py-7 text-center", isArabic ? "border-l border-[#e2e8f0]" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
-              <p className="text-[13px] leading-[22px] text-[#94a3b8]" style={isArabic ? heroArabicFontStyle : undefined}>{servicesCopy.bottomQuestion}</p>
-              <a
-                className="inline-flex h-10 items-center gap-2 rounded-full border border-[#dbe3f0] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-[#0b1f4d]"
-                href="#contact"
-                style={isArabic ? heroArabicFontStyle : undefined}
-              >
-                {servicesCopy.bottomButton}
-                {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
-              </a>
+              <div className={["w-[384px]", isArabic ? "text-right" : ""].join(" ")}>
+                <p className="text-[16px] leading-[26px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {servicesCopy.intro}
+                </p>
+                <a
+                  className="mt-4 inline-flex h-10 items-center gap-2 rounded-[16px] bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)]"
+                  href="#contact"
+                  style={isArabic ? heroArabicFontStyle : undefined}
+                >
+                  {servicesCopy.topCta}
+                  {isArabic ? <ArrowLeft size={12} /> : null}
+                </a>
+              </div>
             </div>
-          </div>
+
+            <div className="grid grid-cols-3 border-t border-[#e2e8f0]">
+              {services.map(({ number, title, description, icon: Icon }, index) => (
+                <div
+                  key={title}
+                  className={[
+                    `${cardHoverClassName} min-h-[184px] border-[#e2e8f0] px-8 py-7`,
+                    index % 3 !== 2 ? (isArabic ? "border-l" : "border-r") : "",
+                    index < 3 ? "border-b" : "",
+                  ].join(" ")}
+                  dir={isArabic ? "rtl" : "ltr"}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex size-8 items-center justify-center rounded-full border border-[#dbeafe] bg-[#eff6ff] text-[#2563eb]">
+                      <Icon size={15} strokeWidth={1.8} />
+                    </div>
+                    <span className="text-[24px] font-semibold text-[#cbd5e1]">{number}</span>
+                  </div>
+                  <h3 className={["mt-6 text-[16px] font-bold leading-6 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
+                  <p className={["mt-2 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
+                  <Link className="mt-3 inline-flex items-center gap-2 text-[13px] font-semibold text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined} to={servicePageRoutes[index]}>
+                    {servicesCopy.cardCta}
+                    {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
+                  </Link>
+                </div>
+              ))}
+              <div className={["flex min-h-[184px] flex-col items-center justify-center gap-4 px-8 py-7 text-center", isArabic ? "border-l border-[#e2e8f0]" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
+                <p className="text-[13px] leading-[22px] text-[#94a3b8]" style={isArabic ? heroArabicFontStyle : undefined}>{servicesCopy.bottomQuestion}</p>
+                <a
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-[#dbe3f0] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-[#0b1f4d]"
+                  href="#contact"
+                  style={isArabic ? heroArabicFontStyle : undefined}
+                >
+                  {servicesCopy.bottomButton}
+                  {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
+                </a>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -2196,24 +2493,24 @@ export default function JhcLandingPage() {
             >
               {isArabic
                 ? arabicMarqueeLoopPhrases.map((phrase, i) => (
-                    <span key={i} className="inline-flex items-center gap-4 whitespace-nowrap select-none" style={heroArabicFontStyle}>
-                      <span className="text-[14px] text-[#2563eb]/40">●</span>
-                      <span className="text-[11px] font-semibold text-[#64748b]">{phrase}</span>
-                    </span>
-                  ))
+                  <span key={i} className="inline-flex items-center gap-4 whitespace-nowrap select-none" style={heroArabicFontStyle}>
+                    <span className="text-[14px] text-[#2563eb]/40">●</span>
+                    <span className="text-[11px] font-semibold text-[#64748b]">{phrase}</span>
+                  </span>
+                ))
                 : marqueeItems.map((item, i) => (
-                    <span
-                      key={i}
-                      className={[
-                        item === "•" || item === "●"
-                          ? "text-[#2563eb]/40 text-[14px]"
-                          : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
-                        "whitespace-nowrap select-none",
-                      ].join(" ")}
-                    >
-                      {item}
-                    </span>
-                  ))}
+                  <span
+                    key={i}
+                    className={[
+                      item === "•" || item === "●"
+                        ? "text-[#2563eb]/40 text-[14px]"
+                        : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
+                      "whitespace-nowrap select-none",
+                    ].join(" ")}
+                  >
+                    {item}
+                  </span>
+                ))}
             </div>
             <div
               aria-hidden="true"
@@ -2225,24 +2522,24 @@ export default function JhcLandingPage() {
             >
               {isArabic
                 ? arabicMarqueeLoopPhrases.map((phrase, i) => (
-                    <span key={`clone-${i}`} className="inline-flex items-center gap-4 whitespace-nowrap select-none" style={heroArabicFontStyle}>
-                      <span className="text-[14px] text-[#2563eb]/40">●</span>
-                      <span className="text-[11px] font-semibold text-[#64748b]">{phrase}</span>
-                    </span>
-                  ))
+                  <span key={`clone-${i}`} className="inline-flex items-center gap-4 whitespace-nowrap select-none" style={heroArabicFontStyle}>
+                    <span className="text-[14px] text-[#2563eb]/40">●</span>
+                    <span className="text-[11px] font-semibold text-[#64748b]">{phrase}</span>
+                  </span>
+                ))
                 : marqueeItems.map((item, i) => (
-                    <span
-                      key={`clone-${i}`}
-                      className={[
-                        item === "•" || item === "●"
-                          ? "text-[#2563eb]/40 text-[14px]"
-                          : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
-                        "whitespace-nowrap select-none",
-                      ].join(" ")}
-                    >
-                      {item}
-                    </span>
-                  ))}
+                  <span
+                    key={`clone-${i}`}
+                    className={[
+                      item === "•" || item === "●"
+                        ? "text-[#2563eb]/40 text-[14px]"
+                        : "text-[11px] font-semibold uppercase tracking-[1.3px] text-[#64748b]",
+                      "whitespace-nowrap select-none",
+                    ].join(" ")}
+                  >
+                    {item}
+                  </span>
+                ))}
             </div>
           </div>
         </div>
@@ -2313,19 +2610,19 @@ export default function JhcLandingPage() {
             <div className="grid grid-cols-5 overflow-hidden rounded-[16px] border border-[#e2e8f0]">
               {processSteps.map(({ number, title, description, tags, icon: Icon }, index) => (
                 <div
-                key={title}
-                className={[
-                  `${cardHoverClassName} min-h-[264px] px-6 py-6`,
-                  index < processSteps.length - 1 ? (isArabic ? "border-l border-[#e2e8f0]" : "border-r border-[#e2e8f0]") : "",
-                ].join(" ")}
-                dir={isArabic ? "rtl" : "ltr"}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex size-8 items-center justify-center rounded-full border border-[#dbeafe] bg-[#eff6ff] text-[#2563eb]">
-                    <Icon size={15} strokeWidth={1.8} />
+                  key={title}
+                  className={[
+                    `${cardHoverClassName} min-h-[264px] px-6 py-6`,
+                    index < processSteps.length - 1 ? (isArabic ? "border-l border-[#e2e8f0]" : "border-r border-[#e2e8f0]") : "",
+                  ].join(" ")}
+                  dir={isArabic ? "rtl" : "ltr"}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex size-8 items-center justify-center rounded-full border border-[#dbeafe] bg-[#eff6ff] text-[#2563eb]">
+                      <Icon size={15} strokeWidth={1.8} />
+                    </div>
+                    <span className="text-[24px] font-semibold text-[#cbd5e1]">{number}</span>
                   </div>
-                  <span className="text-[24px] font-semibold text-[#cbd5e1]">{number}</span>
-                </div>
                   <h3 className={["mt-5 text-[15px] font-bold leading-5 text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{title}</h3>
                   <p className={["mt-3 text-[12px] leading-[20px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>{description}</p>
                   <div className={["mt-5 flex flex-wrap gap-2", isArabic ? "justify-end flex-row-reverse" : ""].join(" ")}>
@@ -2345,140 +2642,328 @@ export default function JhcLandingPage() {
           </div>
         </section>
 
-        <section className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
-          <div className="mx-4 overflow-hidden rounded-[24px] border border-[#dbe3f0] bg-white md:mx-0">
-            <div className="grid gap-0 lg:grid-cols-[0.96fr_1.04fr]">
-              <div className="bg-[#0b1f4d] px-6 py-8 text-white md:px-10 md:py-12">
-                <div className={isArabic ? "text-right" : ""} dir={isArabic ? "rtl" : "ltr"}>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[1.4px] text-[#93c5fd]">
-                    <BookOpen size={13} />
-                    {isArabic ? "مكتبة JHC" : "JHC Insights"}
-                  </div>
-                  <h2 className="mt-5 text-[34px] font-extrabold leading-[40px] tracking-[-1.1px] md:text-[44px] md:leading-[50px]" style={isArabic ? heroArabicFontStyle : undefined}>
-                    {isArabic ? "أحدث المقالات والرؤى" : "Latest Articles"}
-                  </h2>
-                  <p className="mt-4 max-w-[470px] text-[15px] leading-[26px] text-[#cbd5e1]" style={isArabic ? heroArabicFontStyle : undefined}>
-                    {isArabic
-                      ? "مختارات حديثة من رؤى JHC حول رأس المال البشري، نماذج التشغيل، وسوق العمل في الخليج."
-                      : "Fresh JHC perspectives on human capital, operating models, and workforce growth across the GCC."}
-                  </p>
-                  <Link
-                    className="mt-7 inline-flex h-11 items-center gap-3 rounded-[16px] bg-[#2563eb] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_12px_30px_rgba(37,99,235,0.32)]"
-                    to="/articles"
-                    style={isArabic ? heroArabicFontStyle : undefined}
-                  >
-                    {isArabic ? "عرض كل المقالات" : "View all articles"}
-                    {isArabic ? <ArrowLeft size={13} /> : <ArrowRight size={13} />}
-                  </Link>
-                </div>
-              </div>
+        <section
+          ref={partnerLogoSectionRef}
+          aria-labelledby="trusted-organizations-title"
+          className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]"
+        >
+          <div className="mx-4 overflow-hidden rounded-[24px] border border-[#dbe3f0] bg-white py-7 md:mx-0 md:py-9">
+            <div className={["px-6 md:px-12", isArabic ? "text-right" : "text-left"].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
+              <h2
+                id="trusted-organizations-title"
+                className="text-[10px] font-extrabold uppercase tracking-[1.5px] text-[#64748b] md:text-[13px] md:tracking-[2.4px]"
+                style={isArabic ? heroArabicFontStyle : undefined}
+              >
+                {isArabic ? "شركاؤنا من المؤسسات الرائدة" : "Trusted by Leading Organizations"}
+              </h2>
+            </div>
 
-              <div className="bg-[#f8fafc] p-4 md:p-6">
-                {articlesState === "loading" || articlesState === "idle" ? (
-                  <LandingContentSkeleton />
-                ) : articlesState === "error" ? (
-                  <div className="flex min-h-[270px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-white px-6 text-center">
-                    <SearchX size={24} className="text-[#2563eb]" />
-                    <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
-                      {isArabic ? "تعذر تحميل المقالات الآن" : "Articles are unavailable right now"}
-                    </p>
-                    <p className="mt-2 max-w-[360px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
-                      {isArabic ? "يمكنك المتابعة في الصفحة، أو زيارة مكتبة المقالات لاحقاً." : "You can continue browsing the site or visit the articles library later."}
-                    </p>
-                  </div>
-                ) : articlesState === "empty" ? (
-                  <div className="flex min-h-[270px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-white px-6 text-center">
-                    <BookOpen size={24} className="text-[#2563eb]" />
-                    <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
-                      {isArabic ? "لا توجد مقالات منشورة حالياً" : "No published articles yet"}
-                    </p>
-                    <p className="mt-2 max-w-[340px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
-                      {isArabic ? "ستظهر أحدث المقالات هنا عند نشرها." : "Latest published articles will appear here once available."}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-3">
-                    {latestArticles.map((article) => (
-                      <Link
-                        key={article.id}
-                        className={`${cardHoverClassName} group overflow-hidden rounded-[18px] border border-[#e2e8f0] bg-white shadow-[0_14px_34px_rgba(15,23,42,0.04)] transition-colors hover:border-[#bfdbfe]`}
-                        to={`/articles/${article.slug}`}
-                      >
-                        <div className="relative h-36 overflow-hidden bg-[#e2e8f0]">
-                          {article.coverImageUrl ? (
-                            <img
-                              alt=""
-                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-                              src={article.coverImageUrl}
-                            />
-                          ) : (
-                            <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#eff6ff,#f8fafc)]">
-                              <img alt="" className="h-10 w-auto opacity-65" src={logo} />
-                            </div>
-                          )}
+            <div className="mt-6 space-y-5 md:mt-7 md:space-y-6">
+              {partnerLogoRows.map((row, rowIndex) => (
+                <div
+                  key={rowIndex}
+                  dir="ltr"
+                  className="relative overflow-hidden"
+                  style={{
+                    direction: "ltr",
+                    width: "100%",
+                  }}
+                >
+                  <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-[8%] bg-gradient-to-r from-white to-transparent" />
+                  <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-[8%] bg-gradient-to-l from-white to-transparent" />
+                  {partnerLogoStrips[rowIndex] ? (
+                    <div
+                      className={[
+                        "flex w-max items-center",
+                        rowIndex === 0 ? "animate-partner-marquee-left" : "animate-partner-marquee-right",
+                      ].join(" ")}
+                      dir="ltr"
+                      style={{
+                        ...(rowIndex === 1 ? { animationDelay: "-22s" } : {}),
+                        direction: "ltr",
+                      }}
+                    >
+                      {[0, 1].map((groupIndex) => (
+                        <img
+                          key={groupIndex}
+                          alt=""
+                          aria-hidden={groupIndex === 1}
+                          className="block max-w-none shrink-0"
+                          decoding="async"
+                          draggable={false}
+                          height={partnerLogoStrips[rowIndex]?.height}
+                          src={partnerLogoStrips[rowIndex]?.src}
+                          style={{
+                            width: `${partnerLogoStrips[rowIndex]?.width}px`,
+                            height: `${partnerLogoStrips[rowIndex]?.height}px`,
+                          }}
+                          width={partnerLogoStrips[rowIndex]?.width}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      className={[
+                        "flex w-max items-center",
+                        rowIndex === 0 ? "animate-partner-marquee-left" : "animate-partner-marquee-right",
+                      ].join(" ")}
+                      dir="ltr"
+                      style={{
+                        ...(rowIndex === 1 ? { animationDelay: "-22s" } : {}),
+                        direction: "ltr",
+                      }}
+                    >
+                      {[0, 1].map((groupIndex) => (
+                        <div
+                          key={groupIndex}
+                          aria-hidden={groupIndex === 1}
+                          className="flex shrink-0 items-center gap-[34px] pr-[34px] md:gap-14 md:pr-14"
+                          dir="ltr"
+                        >
+                          {row.map((partner) => (
+                            <span
+                              key={`${groupIndex}-${partner.name}`}
+                              className="inline-flex shrink-0 items-center justify-center rounded-[4px] border border-[#e2e8f0]/45 bg-white/40 px-2 py-1.5 md:px-3 md:py-2"
+                            >
+                              <img
+                                alt=""
+                                className="max-h-10 max-w-[150px] rounded-[4px] object-contain opacity-80 transition-opacity duration-200 hover:opacity-100 md:max-h-14 md:max-w-[220px]"
+                                decoding="async"
+                                loading="eager"
+                                src={partner.src}
+                                {...({ fetchpriority: "low" } as Record<string, string>)}
+                              />
+                            </span>
+                          ))}
                         </div>
-                        <div className={["p-5", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
-                          <div className="flex items-center gap-2 text-[11px] font-semibold text-[#64748b]">
-                            <CalendarDays size={12} className="text-[#2563eb]" />
-                            <span>{formatLandingDate(getArticleDateValue(article), language)}</span>
-                          </div>
-                          <h3 className="mt-3 line-clamp-2 text-[17px] font-extrabold leading-[23px] tracking-[-0.35px] text-[#0b1f4d] transition-colors group-hover:text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
-                            {article.title}
-                          </h3>
-                          <p className="mt-2 line-clamp-3 text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
-                            {article.summary}
-                          </p>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </section>
 
         <section className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
-          <div className="mx-4 rounded-[24px] border border-[#dbe3f0] bg-white px-6 py-8 md:mx-0 md:px-10 md:py-12">
-            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between" dir={isArabic ? "rtl" : "ltr"}>
+          <div className="mx-4 overflow-hidden rounded-[24px] border border-[#dbe3f0] bg-white md:mx-0">
+            <div className="grid gap-6 px-6 py-8 md:px-[62px] md:py-[58px] lg:grid-cols-[minmax(0,1fr)_384px] lg:items-start lg:justify-between" dir={isArabic ? "rtl" : "ltr"}>
               <div className={isArabic ? "text-right" : ""}>
-                <p className="inline-flex items-center gap-2 text-[14px] font-bold uppercase tracking-[1.8px] text-[#2563eb]" style={isArabic ? heroArabicFontStyle : undefined}>
-                  <BriefcaseBusiness size={15} />
-                  {isArabic ? "نحن نوظف" : "We're Hiring"}
+                <p className="text-[13px] font-extrabold uppercase tracking-[2.2px] text-[#1d4ed8]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {isArabic ? "رؤى ومقالات" : "INSIGHTS & PERSPECTIVES"}
                 </p>
-                <h2 className="mt-4 text-[34px] font-extrabold leading-[40px] tracking-[-1.1px] text-[#0b1f4d] md:text-[46px] md:leading-[50px]" style={isArabic ? heroArabicFontStyle : undefined}>
-                  {isArabic ? "فرص مفتوحة مع JHC" : "Open Positions"}
+                <h2 className="mt-4 text-[40px] font-extrabold leading-[46px] tracking-[-1.4px] text-[#0b1f4d] md:text-[46px] md:leading-[52px]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {isArabic ? "أحدث المقالات" : "Latest Articles"}
                 </h2>
-                <p className="mt-4 max-w-[620px] text-[15px] leading-[26px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+              </div>
+              <div className={isArabic ? "text-right" : ""}>
+                <p className="mt-2 max-w-[470px] text-[16px] leading-[25px] text-[#64748b] md:mt-3 lg:mt-0" style={isArabic ? heroArabicFontStyle : undefined}>
                   {isArabic
-                    ? "تصفح أحدث الفرص المنشورة وانضم إلى فرق تساعد الشركات على بناء نماذج تشغيل أقوى."
-                    : "Explore the latest published roles and join teams helping businesses build stronger operating models."}
+                    ? "تفكير استراتيجي وإرشادات عملية لقادة الأعمال والموارد البشرية في الخليج."
+                    : "Strategic thinking and practical guidance for GCC business and HR leaders."}
+                </p>
+                <Link
+                  className={["mt-4 hidden h-10 items-center gap-2 rounded-[16px] bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)] lg:inline-flex", isArabic ? "flex-row-reverse" : ""].join(" ")}
+                  to="/articles"
+                  style={isArabic ? heroArabicFontStyle : undefined}
+                >
+                  {isArabic ? "عرض كل المقالات" : "View All Articles"}
+                  {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
+                </Link>
+              </div>
+            </div>
+
+            <div className="border-t border-[#dbe3f0] px-6 py-6 md:px-11 md:py-11">
+              {articlesState === "loading" || articlesState === "idle" ? (
+                <div className="grid gap-4 md:grid-cols-3 md:gap-6">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="overflow-hidden rounded-[15px] border border-[#dbe3f0] bg-white">
+                      <div className="h-[198px] animate-pulse bg-[#e2e8f0]" />
+                      <div className="p-7">
+                        <div className="h-5 w-[86%] animate-pulse rounded bg-[#e2e8f0]" />
+                        <div className="mt-3 h-5 w-[70%] animate-pulse rounded bg-[#e2e8f0]" />
+                        <div className="mt-7 h-4 w-full animate-pulse rounded bg-[#f1f5f9]" />
+                        <div className="mt-3 h-4 w-[92%] animate-pulse rounded bg-[#f1f5f9]" />
+                        <div className="mt-3 h-4 w-[72%] animate-pulse rounded bg-[#f1f5f9]" />
+                        <div className="mt-6 h-px bg-[#e2e8f0]" />
+                        <div className="mt-4 flex items-center justify-between">
+                          <div className="space-y-2">
+                            <div className="h-3 w-20 animate-pulse rounded bg-[#e2e8f0]" />
+                            <div className="h-3 w-24 animate-pulse rounded bg-[#f1f5f9]" />
+                          </div>
+                          <div className="h-3 w-24 animate-pulse rounded bg-[#dbeafe]" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : articlesState === "error" ? (
+                <div className="flex min-h-[270px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-white px-6 text-center">
+                  <SearchX size={24} className="text-[#2563eb]" />
+                  <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "تعذر تحميل المقالات الآن" : "Articles are unavailable right now"}
+                  </p>
+                  <p className="mt-2 max-w-[360px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "يمكنك المتابعة في الصفحة، أو زيارة مكتبة المقالات لاحقاً." : "You can continue browsing the site or visit the articles library later."}
+                  </p>
+                </div>
+              ) : articlesState === "empty" ? (
+                <div className="flex min-h-[270px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-white px-6 text-center">
+                  <BookOpen size={24} className="text-[#2563eb]" />
+                  <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "لا توجد مقالات منشورة حالياً" : "No published articles yet"}
+                  </p>
+                  <p className="mt-2 max-w-[340px] text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                    {isArabic ? "ستظهر أحدث المقالات هنا عند نشرها." : "Latest published articles will appear here once available."}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div
+                    ref={articleCarouselRef}
+                    onScroll={updateActiveArticleIndex}
+                    className="flex gap-4 overflow-x-auto scroll-smooth snap-x snap-mandatory px-1 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] md:grid md:grid-cols-2 md:gap-6 md:overflow-visible md:px-0 md:pb-0 xl:grid-cols-3 [&::-webkit-scrollbar]:hidden"
+                    dir={isArabic ? "rtl" : "ltr"}
+                  >
+                    {latestArticles.map((article, index) => (
+                      <Link
+                        key={article.id}
+                        className="group flex min-h-[462px] w-[86%] shrink-0 snap-center flex-col overflow-hidden rounded-[15px] border border-[#dbe3f0] bg-white transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-[2px] hover:border-[#bfdbfe] hover:shadow-[0_10px_26px_rgba(15,23,42,0.07)] md:w-auto md:shrink md:snap-align-none"
+                        to={`/articles/${article.slug}`}
+                      >
+                        <div
+                          className={[
+                            "relative h-[198px] shrink-0 overflow-hidden",
+                            index === 0
+                              ? "bg-[linear-gradient(135deg,#15285e_0%,#2449c7_100%)]"
+                              : index === 1
+                                ? "bg-[linear-gradient(135deg,#274a91_0%,#4185f4_100%)]"
+                                : "bg-[linear-gradient(135deg,#121c2c_0%,#334155_100%)]",
+                          ].join(" ")}
+                        >
+                          {article.coverImageUrl ? (
+                            <img
+                              alt=""
+                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.035]"
+                              src={getArticleCoverImageSrc(article.slug)}
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center">
+                              <BookOpen size={38} className="text-white/24" strokeWidth={1.8} />
+                            </div>
+                          )}
+                        </div>
+                        <div className={["flex flex-1 flex-col px-7 pb-6 pt-7", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
+                          <h3 className="line-clamp-2 text-[18px] font-extrabold leading-[26px] tracking-[-0.35px] text-[#0b1f4d] transition-colors group-hover:text-[#1d4ed8]" style={isArabic ? heroArabicFontStyle : undefined}>
+                            {article.title}
+                          </h3>
+                          <p className="mt-6 line-clamp-3 min-h-[72px] text-[16px] leading-[25px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                            {article.summary}
+                          </p>
+                          <div className="mt-auto border-t border-[#e2e8f0] pt-4">
+                            <div className="flex items-end justify-between gap-4">
+                              <div>
+                                <p className="text-[13px] font-extrabold leading-4 text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
+                                  {article.author}
+                                </p>
+                                <p className="mt-1 text-[13px] leading-4 text-[#94a3b8]" style={isArabic ? heroArabicFontStyle : undefined}>
+                                  {formatLandingDate(getArticleDateValue(article), language)}
+                                </p>
+                              </div>
+                              <span className="inline-flex shrink-0 items-center gap-2 text-[12px] font-extrabold text-[#1d4ed8]" style={isArabic ? heroArabicFontStyle : undefined}>
+                                {isArabic ? "اقرأ المقال" : "Read Article"}
+                                {isArabic ? <ArrowLeft size={13} /> : <ArrowRight size={13} />}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                  {latestArticles.length > 1 ? (
+                    <div className="mt-4 flex items-center justify-center gap-2 md:hidden" dir={isArabic ? "rtl" : "ltr"} aria-label={isArabic ? "مؤشر المقالات" : "Article carousel position"}>
+                      {latestArticles.map((article, index) => (
+                        <button
+                          key={article.id}
+                          type="button"
+                          className={[
+                            "h-2 rounded-full transition-all duration-200",
+                            index === activeArticleIndex ? "w-6 bg-[#0b1f4d]" : "w-2 bg-[#cbd5e1]",
+                          ].join(" ")}
+                          aria-label={isArabic ? `انتقل إلى المقال ${index + 1}` : `Go to article ${index + 1}`}
+                          aria-current={index === activeArticleIndex ? "true" : undefined}
+                          onClick={() => {
+                            const carousel = articleCarouselRef.current;
+                            const target = carousel?.children[index];
+                            if (target instanceof HTMLElement) {
+                              target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  <Link
+                    className={["mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-[16px] bg-[#0b1f4d] px-6 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)] md:hidden", isArabic ? "flex-row-reverse" : ""].join(" ")}
+                    to="/articles"
+                    style={isArabic ? heroArabicFontStyle : undefined}
+                  >
+                    {isArabic ? "عرض جميع المقالات" : "View All Articles"}
+                    {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="reveal-on-scroll mx-auto mt-20 w-full max-w-none md:w-[1280px]">
+          <div className="mx-4 overflow-hidden rounded-[24px] border border-[#dbe3f0] bg-white md:mx-0">
+            <div className="grid gap-7 px-6 py-10 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:justify-between md:px-[62px] md:py-[48px]" dir={isArabic ? "rtl" : "ltr"}>
+              <div className={isArabic ? "text-right" : ""}>
+                <h2 className="text-[40px] font-extrabold leading-[46px] tracking-[-1.35px] text-[#0b1f4d] md:text-[46px] md:leading-[52px]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {isArabic ? (
+                    "فرص جديدة بانتظارك"
+                  ) : (
+                    <>
+                      We’re Hiring. <span className="text-[#2b55e7]">Join Us.</span>
+                    </>
+                  )}
+                </h2>
+                <p className="mt-4 max-w-[390px] text-[16px] leading-[25px] text-[#64748b]" style={isArabic ? heroArabicFontStyle : undefined}>
+                  {isArabic
+                    ? "استكشف الوظائف المتاحة وانضم إلى فريق يعمل على تشكيل مستقبل العمل في الخليج والشرق الأوسط."
+                    : "Explore our open positions and join a team shaping the future of work across the GCC and MENA."}
                 </p>
               </div>
               <Link
-                className="inline-flex h-11 w-fit items-center gap-3 rounded-[16px] bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_12px_28px_rgba(11,31,77,0.18)]"
+                className={["hidden h-10 items-center gap-2 rounded-[16px] bg-[#0b1f4d] px-5 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)] md:inline-flex md:justify-self-end", isArabic ? "flex-row-reverse" : ""].join(" ")}
                 to="/careers"
                 style={isArabic ? heroArabicFontStyle : undefined}
               >
-                {isArabic ? "عرض كل الوظائف" : "View all positions"}
-                {isArabic ? <ArrowLeft size={13} /> : <ArrowRight size={13} />}
+                {isArabic ? "عرض كل الوظائف" : "View All Positions"}
+                {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
               </Link>
             </div>
 
-            <div className="mt-8">
+            <div className="border-t border-[#dbe3f0] bg-[#f8fafc] px-6 py-12 md:px-[62px] md:py-[62px]">
               {jobsState === "loading" || jobsState === "idle" ? (
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-6 md:grid-cols-3">
                   {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={index} className="rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] p-5">
-                      <div className="h-4 w-24 animate-pulse rounded bg-[#e2e8f0]" />
-                      <div className="mt-5 h-6 animate-pulse rounded bg-[#e2e8f0]" />
+                    <div key={index} className="min-h-[236px] rounded-[18px] border border-[#dbe3f0] bg-white p-7 shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="size-12 animate-pulse rounded-full bg-[#eff6ff]" />
+                        <div className="h-7 w-20 animate-pulse rounded-full bg-[#eff6ff]" />
+                      </div>
+                      <div className="mt-7 h-5 w-3/4 animate-pulse rounded bg-[#e2e8f0]" />
                       <div className="mt-4 h-4 w-2/3 animate-pulse rounded bg-[#e2e8f0]" />
-                      <div className="mt-6 h-9 animate-pulse rounded-full bg-[#e2e8f0]" />
+                      <div className="mt-6 h-px bg-[#e2e8f0]" />
+                      <div className="mt-5 h-4 w-24 animate-pulse rounded bg-[#dbeafe]" />
                     </div>
                   ))}
                 </div>
               ) : jobsState === "error" ? (
-                <div className="flex min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] px-6 text-center">
+                <div className="flex min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-[#dbe3f0] bg-white px-6 text-center">
                   <SearchX size={24} className="text-[#2563eb]" />
                   <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
                     {isArabic ? "تعذر تحميل الوظائف الآن" : "Open positions are unavailable right now"}
@@ -2488,7 +2973,7 @@ export default function JhcLandingPage() {
                   </p>
                 </div>
               ) : jobsState === "empty" ? (
-                <div className="flex min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] px-6 text-center">
+                <div className="flex min-h-[190px] flex-col items-center justify-center rounded-[18px] border border-[#dbe3f0] bg-white px-6 text-center">
                   <BriefcaseBusiness size={24} className="text-[#2563eb]" />
                   <p className="mt-4 text-[15px] font-bold text-[#0b1f4d]" style={isArabic ? heroArabicFontStyle : undefined}>
                     {isArabic ? "لا توجد وظائف منشورة حالياً" : "No open positions right now"}
@@ -2498,41 +2983,156 @@ export default function JhcLandingPage() {
                   </p>
                 </div>
               ) : (
-                <div className="grid gap-4 md:grid-cols-3">
-                  {openJobs.map((job) => (
-                    <Link
-                      key={job.id}
-                      className={`${cardHoverClassName} group flex min-h-[230px] flex-col rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] p-5 transition-colors hover:border-[#bfdbfe] hover:bg-white`}
-                      to={`/careers/${job.slug}`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="rounded-full border border-[#bfdbfe] bg-[#eff6ff] px-3 py-1 text-[10px] font-bold uppercase tracking-[1.1px] text-[#2563eb]">
-                          {job.employmentType || (isArabic ? "فرصة عمل" : "Open role")}
-                        </span>
-                        <ArrowRight className={isArabic ? "rotate-180 text-[#94a3b8] transition-colors group-hover:text-[#2563eb]" : "text-[#94a3b8] transition-colors group-hover:text-[#2563eb]"} size={15} />
-                      </div>
-                      <h3 className={["mt-5 line-clamp-2 text-[20px] font-extrabold leading-[26px] tracking-[-0.45px] text-[#0b1f4d] transition-colors group-hover:text-[#2563eb]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
-                        {job.title}
-                      </h3>
-                      <p className={["mt-3 line-clamp-3 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
-                        {job.description}
-                      </p>
-                      <div className="mt-auto flex flex-wrap gap-2 pt-6" dir={isArabic ? "rtl" : "ltr"}>
-                        {job.location ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e2e8f0] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#64748b]">
-                            <MapPin size={12} className="text-[#2563eb]" />
-                            {job.location}
-                          </span>
-                        ) : null}
-                        {job.experienceLevel ? (
-                          <span className="inline-flex items-center rounded-full border border-[#e2e8f0] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#64748b]">
-                            {job.experienceLevel}
-                          </span>
-                        ) : null}
-                      </div>
-                    </Link>
-                  ))}
-                </div>
+                <>
+                  <div
+                    ref={jobCarouselRef}
+                    onScroll={updateActiveJobIndex}
+                    className="flex gap-4 overflow-x-auto scroll-smooth snap-x snap-mandatory px-1 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden"
+                    dir={isArabic ? "rtl" : "ltr"}
+                  >
+                    {mobileOpenJobs.map((job) => {
+                      const salaryLabel = formatJobSalary(job);
+                      return (
+                        <Link
+                          key={job.id}
+                          className="group flex min-h-[236px] w-[86%] shrink-0 snap-center flex-col rounded-[18px] border border-[#dbe3f0] bg-white px-7 py-7 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-[3px] hover:border-[#bfdbfe] hover:shadow-[0_14px_30px_rgba(15,23,42,0.08)]"
+                          to={`/careers/${job.slug}`}
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="inline-flex size-12 items-center justify-center rounded-full border border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8]">
+                              <BriefcaseBusiness size={20} />
+                            </span>
+                            <span className="shrink-0 rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-3.5 py-1.5 text-[12px] font-bold leading-4 text-[#64748b]">
+                              {job.employmentType || (isArabic ? "دوام كامل" : "Full-time")}
+                            </span>
+                          </div>
+                          <h3 className={["mt-7 text-[18px] font-extrabold leading-[25px] tracking-[-0.35px] text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
+                            {job.title}
+                          </h3>
+                          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-[13px] leading-5 text-[#64748b]" dir={isArabic ? "rtl" : "ltr"}>
+                            {job.location ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <MapPin size={13} className="text-[#94a3b8]" />
+                                {job.location}
+                              </span>
+                            ) : null}
+                            {job.experienceLevel ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <BriefcaseBusiness size={13} className="text-[#94a3b8]" />
+                                {job.experienceLevel}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-auto pt-5">
+                            <div className="h-px bg-[#e2e8f0]" />
+                            <div className={["mt-4 flex items-center justify-between gap-4", isArabic ? "flex-row-reverse" : ""].join(" ")}>
+                              <p
+                                className="text-[13px] font-extrabold leading-5"
+                                style={{
+                                  ...(isArabic ? heroArabicFontStyle : undefined),
+                                  color: salaryLabel ? "#0b1f4d" : "#94a3b8",
+                                }}
+                              >
+                                {salaryLabel || (isArabic ? "غير معلن" : "Not disclosed")}
+                              </p>
+                              <span className={["inline-flex shrink-0 items-center gap-2 text-[13px] font-extrabold text-[#1d4ed8] transition-colors group-hover:text-[#0b1f4d]", isArabic ? "flex-row-reverse" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
+                                {isArabic ? "عرض الوظيفة" : "View Role"}
+                                {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
+                              </span>
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                  {mobileOpenJobs.length > 1 ? (
+                    <div className="mt-4 flex items-center justify-center gap-2 md:hidden" dir={isArabic ? "rtl" : "ltr"} aria-label={isArabic ? "مؤشر الوظائف" : "Job carousel position"}>
+                      {mobileOpenJobs.map((job, index) => (
+                        <button
+                          key={job.id}
+                          type="button"
+                          className={[
+                            "h-2 rounded-full transition-all duration-200",
+                            index === activeJobIndex ? "w-6 bg-[#0b1f4d]" : "w-2 bg-[#cbd5e1]",
+                          ].join(" ")}
+                          aria-label={isArabic ? `انتقل إلى الوظيفة ${index + 1}` : `Go to job ${index + 1}`}
+                          aria-current={index === activeJobIndex ? "true" : undefined}
+                          onClick={() => {
+                            const carousel = jobCarouselRef.current;
+                            const target = carousel?.children[index];
+                            if (target instanceof HTMLElement) {
+                              target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  <Link
+                    className={["mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-[16px] bg-[#0b1f4d] px-6 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)] md:hidden", isArabic ? "flex-row-reverse" : ""].join(" ")}
+                    to="/careers"
+                    style={isArabic ? heroArabicFontStyle : undefined}
+                  >
+                    {isArabic ? "عرض جميع الوظائف" : "View All Positions"}
+                    {isArabic ? <ArrowLeft size={12} /> : <ArrowRight size={12} />}
+                  </Link>
+                  <div className="hidden gap-6 md:grid md:grid-cols-2 xl:grid-cols-3">
+                    {openJobs.map((job) => {
+                      const salaryLabel = formatJobSalary(job);
+                      return (
+                        <Link
+                          key={job.id}
+                          className="group flex min-h-[236px] flex-col rounded-[18px] border border-[#dbe3f0] bg-white px-7 py-7 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-[3px] hover:border-[#bfdbfe] hover:shadow-[0_14px_30px_rgba(15,23,42,0.08)]"
+                          to={`/careers/${job.slug}`}
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <span className="inline-flex size-12 items-center justify-center rounded-full border border-[#bfdbfe] bg-[#eff6ff] text-[#1d4ed8]">
+                              <BriefcaseBusiness size={20} />
+                            </span>
+                            <span className="shrink-0 rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-3.5 py-1.5 text-[12px] font-bold leading-4 text-[#64748b]">
+                              {job.employmentType || (isArabic ? "دوام كامل" : "Full-time")}
+                            </span>
+                          </div>
+                          <h3 className={["mt-7 text-[18px] font-extrabold leading-[25px] tracking-[-0.35px] text-[#0b1f4d]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
+                            {job.title}
+                          </h3>
+                          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-[13px] leading-5 text-[#64748b]" dir={isArabic ? "rtl" : "ltr"}>
+                            {job.location ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <MapPin size={13} className="text-[#94a3b8]" />
+                                {job.location}
+                              </span>
+                            ) : null}
+                            {job.experienceLevel ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <BriefcaseBusiness size={13} className="text-[#94a3b8]" />
+                                {job.experienceLevel}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-auto pt-5">
+                            <div className="h-px bg-[#e2e8f0]" />
+                            <div className={["mt-4 flex items-center justify-between gap-4", isArabic ? "flex-row-reverse" : ""].join(" ")}>
+                              <p
+                                className="text-[13px] font-extrabold leading-5"
+                                style={{
+                                  ...(isArabic ? heroArabicFontStyle : undefined),
+                                  color: salaryLabel ? "#0b1f4d" : "#94a3b8",
+                                }}
+                              >
+                                {salaryLabel || (isArabic ? "غير معلن" : "Not disclosed")}
+                              </p>
+                              <span className={["inline-flex shrink-0 items-center gap-2 text-[13px] font-extrabold text-[#1d4ed8] transition-colors group-hover:text-[#0b1f4d]", isArabic ? "flex-row-reverse" : ""].join(" ")} style={isArabic ? heroArabicFontStyle : undefined}>
+                                {isArabic ? "عرض الوظيفة" : "View Role"}
+                                {isArabic ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}
+                              </span>
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -2675,18 +3275,19 @@ export default function JhcLandingPage() {
                 {CONTACT_FORM_FIELDS.map(({ label, placeholder, required }, index) => {
                   const fieldKey = contactFieldKeys[index];
                   return (
-                  <label key={label} className="flex flex-col gap-2">
-                    <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{label}{required ? " *" : ""}</span>
-                    <input
-                      value={contactForm[fieldKey]}
-                      onChange={(event) => updateContactField(fieldKey, event.target.value)}
-                      className={["h-12 rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
-                      dir={isArabic ? "rtl" : "ltr"}
-                      placeholder={placeholder}
-                      style={arabicContactFontStyle}
-                    />
-                  </label>
-                )})}
+                    <label key={label} className="flex flex-col gap-2">
+                      <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{label}{required ? " *" : ""}</span>
+                      <input
+                        value={contactForm[fieldKey]}
+                        onChange={(event) => updateContactField(fieldKey, event.target.value)}
+                        className={["h-12 rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
+                        dir={isArabic ? "rtl" : "ltr"}
+                        placeholder={placeholder}
+                        style={arabicContactFontStyle}
+                      />
+                    </label>
+                  )
+                })}
 
                 <label className="relative flex flex-col gap-2">
                   <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
@@ -2751,11 +3352,10 @@ export default function JhcLandingPage() {
               </div>
 
               <div
-                  className={`mt-4 flex flex-col gap-2 transition-all duration-300 ease-in-out origin-top ${
-                  selectedService === CONTACT_SECTION_COPY.otherServiceOption
+                className={`mt-4 flex flex-col gap-2 transition-all duration-300 ease-in-out origin-top ${selectedService === CONTACT_SECTION_COPY.otherServiceOption
                     ? "opacity-100 max-h-40 translate-y-0 scale-100"
                     : "pointer-events-none max-h-0 -translate-y-2 scale-95 overflow-hidden opacity-0"
-                }`}
+                  }`}
               >
                 <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.customServiceLabel}</span>
                 <input
@@ -2867,21 +3467,22 @@ export default function JhcLandingPage() {
                   {CONTACT_FORM_FIELDS.map(({ label, placeholder, required }, index) => {
                     const fieldKey = contactFieldKeys[index];
                     return (
-	                  <label key={label} className="flex flex-col gap-2">
-	                    <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{label}{required ? " *" : ""}</span>
-	                    <input
-                        value={contactForm[fieldKey]}
-                        onChange={(event) => updateContactField(fieldKey, event.target.value)}
-	                      className={["h-12 rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
-                        dir={isArabic ? "rtl" : "ltr"}
-	                      placeholder={placeholder}
-                        style={arabicContactFontStyle}
-	                    />
-	                  </label>
-                  )})}
+                      <label key={label} className="flex flex-col gap-2">
+                        <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{label}{required ? " *" : ""}</span>
+                        <input
+                          value={contactForm[fieldKey]}
+                          onChange={(event) => updateContactField(fieldKey, event.target.value)}
+                          className={["h-12 rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
+                          dir={isArabic ? "rtl" : "ltr"}
+                          placeholder={placeholder}
+                          style={arabicContactFontStyle}
+                        />
+                      </label>
+                    )
+                  })}
 
                   <label className="col-span-2 relative flex flex-col gap-2">
-	                    <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
+                    <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.serviceLabel}</span>
 
                     <button
                       ref={desktopServiceTriggerRef}
@@ -2898,7 +3499,7 @@ export default function JhcLandingPage() {
                         ...arabicContactFontStyle,
                       }}
                     >
-	                      <span>{selectedService || CONTACT_SECTION_COPY.servicePlaceholder}</span>
+                      <span>{selectedService || CONTACT_SECTION_COPY.servicePlaceholder}</span>
                       <span aria-hidden="true" className="transition-transform duration-200" style={{ transform: isDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
                         <svg className="size-5 text-[#64748b]" fill="none" viewBox="0 0 20 20" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 8l4 4 4-4" />
@@ -2944,38 +3545,37 @@ export default function JhcLandingPage() {
                 </div>
 
                 <div
-                  className={`col-span-2 mt-4 flex flex-col gap-2 transition-all duration-300 ease-in-out origin-top ${
-                    selectedService === CONTACT_SECTION_COPY.otherServiceOption
+                  className={`col-span-2 mt-4 flex flex-col gap-2 transition-all duration-300 ease-in-out origin-top ${selectedService === CONTACT_SECTION_COPY.otherServiceOption
                       ? "opacity-100 max-h-40 transform translate-y-0 scale-100"
                       : "opacity-0 max-h-0 pointer-events-none transform -translate-y-2 scale-95 overflow-hidden"
-                  }`}
+                    }`}
                 >
-	                  <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.customServiceLabel}</span>
+                  <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.customServiceLabel}</span>
                   <input
                     type="text"
                     value={customService}
                     onChange={(e) => setCustomService(e.target.value)}
                     className={["h-12 w-full rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
                     dir={isArabic ? "rtl" : "ltr"}
-	                    placeholder={CONTACT_SECTION_COPY.customServicePlaceholder}
+                    placeholder={CONTACT_SECTION_COPY.customServicePlaceholder}
                     style={arabicContactFontStyle}
                   />
                 </div>
 
                 <label className="mt-4 flex flex-col gap-2">
-	                  <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.messageLabel} *</span>
+                  <span className={["text-[10px] font-bold uppercase tracking-[1.1px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.messageLabel} *</span>
                   <textarea
                     value={contactMessage}
                     onChange={(event) => setContactMessage(event.target.value)}
                     className={["h-[118px] rounded-[12px] border border-[#e2e8f0] bg-[#f8fafc] px-4 py-3 text-[14px] text-[#0b1f4d] outline-none placeholder:text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")}
                     dir={isArabic ? "rtl" : "ltr"}
-	                    placeholder={CONTACT_SECTION_COPY.messagePlaceholder}
+                    placeholder={CONTACT_SECTION_COPY.messagePlaceholder}
                     style={arabicContactFontStyle}
                   />
                 </label>
 
                 <div className="mt-5 flex items-center justify-between">
-	                  <p className={["text-[11px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.responseNote}</p>
+                  <p className={["text-[11px] text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.responseNote}</p>
                   <div className="flex items-center gap-4">
                     {contactSubmitMessage ? (
                       <p
@@ -2992,14 +3592,14 @@ export default function JhcLandingPage() {
                       className="h-10 rounded-[16px] bg-[#0b1f4d] px-6 text-[12px] font-bold uppercase tracking-[1.2px] text-white transition-[transform,box-shadow,filter] duration-200 hover:-translate-y-[1px] hover:brightness-105 hover:shadow-[0_10px_24px_rgba(11,31,77,0.18)]"
                       style={{ ...(isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : {}), opacity: contactSubmitting ? 0.75 : 1, cursor: contactSubmitting ? "not-allowed" : "pointer" }}
                     >
-	                    {contactSubmitting ? (isArabic ? "جارٍ الإرسال..." : "Sending...") : CONTACT_SECTION_COPY.submitLabel}
+                      {contactSubmitting ? (isArabic ? "جارٍ الإرسال..." : "Sending...") : CONTACT_SECTION_COPY.submitLabel}
                     </button>
                   </div>
                 </div>
               </div>
 
-                <div className="space-y-4">
-                  {OFFICE_LOCATIONS.map((office) => (
+              <div className="space-y-4">
+                {OFFICE_LOCATIONS.map((office) => (
                   <div key={office.city} className={`${cardHoverClassName} rounded-[18px] border border-[#e2e8f0] bg-[#f8fafc] p-5`}>
                     <div className="flex items-start gap-3" dir={isArabic ? "rtl" : "ltr"}>
                       <div className="flex size-9 items-center justify-center rounded-full bg-[#0b1f4d] text-white">
@@ -3010,20 +3610,20 @@ export default function JhcLandingPage() {
                         <div className={["mt-3 space-y-2 text-[13px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={arabicContactFontStyle}>
                           <p className="flex items-center gap-2" dir={isArabic ? "rtl" : "ltr"} style={arabicContactFontStyle}>
                             <Phone size={12} />
-                          {office.phone}
+                            {office.phone}
                           </p>
                           <p className="flex items-center gap-2" dir={isArabic ? "rtl" : "ltr"} style={arabicContactFontStyle}>
                             <Mail size={12} />
-                          {office.email}
+                            {office.email}
                           </p>
                         </div>
                       </div>
                     </div>
                   </div>
-                  ))}
+                ))}
 
-	                <div className={["rounded-[18px] border border-[#dbeafe] bg-[#eff6ff] p-5", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
-	                  <p className="text-[12px] font-bold uppercase tracking-[1.2px] text-[#2563eb]" style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.responseCardTitle}</p>
+                <div className={["rounded-[18px] border border-[#dbeafe] bg-[#eff6ff] p-5", isArabic ? "text-right" : ""].join(" ")} dir={isArabic ? "rtl" : "ltr"}>
+                  <p className="text-[12px] font-bold uppercase tracking-[1.2px] text-[#2563eb]" style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.responseCardTitle}</p>
                   <p className="mt-3 text-[28px] font-extrabold text-[#0b1f4d]" style={arabicContactFontStyle}>{CONTACT_SECTION_COPY.responseCardValue}</p>
                   <p className="mt-2 text-[13px] leading-[22px] text-[#64748b]" style={arabicContactFontStyle}>
                     {CONTACT_SECTION_COPY.responseCardDescription}
@@ -3088,18 +3688,174 @@ export default function JhcLandingPage() {
       </main>
 
       <div className="relative mt-12">
-      <div
-        aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 top-[28%] rounded-t-[24px] bg-[#071633] md:rounded-t-[50px]"
-      />
-      <footer
-        className="relative w-full rounded-t-[24px] bg-[#071633] pt-11 text-white md:rounded-t-[50px]"
-      >
-        <div className="mx-auto w-full max-w-none px-4 md:w-[1280px]" dir={isArabic ? "rtl" : "ltr"}>
-          <div className="md:hidden">
-            <div className="border-b border-white/10 pb-8">
-              <div className="flex items-center justify-between gap-4">
-                <img alt="JHC" className="h-[36px] w-auto" src={logo} />
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 top-[28%] rounded-t-[24px] bg-[#071633] md:rounded-t-[50px]"
+        />
+        <footer
+          className="relative w-full rounded-t-[24px] bg-[#071633] pt-11 text-white md:rounded-t-[50px]"
+        >
+          <div className="mx-auto w-full max-w-none px-4 md:w-[1280px]" dir={isArabic ? "rtl" : "ltr"}>
+            <div className="md:hidden">
+              <div className="border-b border-white/10 pb-8">
+                <div className="flex items-center justify-between gap-4">
+                  <img alt="JHC" className="h-[36px] w-auto" src={logo} />
+                  <div className="flex gap-2" dir="ltr">
+                    {socialButton(Linkedin, {
+                      className: "size-9",
+                      iconClassName: "text-[#94a3b8]",
+                      iconSize: 13,
+                      strokeWidth: 1.6,
+                      fill: true,
+                      href: SOCIAL_LINKS.linkedin,
+                    })}
+                    {socialButton(Facebook, {
+                      className: "size-9",
+                      iconClassName: "text-[#94a3b8]",
+                      iconSize: 13,
+                      strokeWidth: 1.6,
+                      fill: true,
+                      href: SOCIAL_LINKS.facebook,
+                    })}
+                  </div>
+                </div>
+                <p className={["mt-4 max-w-none pr-1 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                  {FOOTER_COPY.description}
+                </p>
+              </div>
+
+              <div className="py-8">
+                {[
+                  {
+                    key: "company" as const,
+                    title: FOOTER_SECTION_TITLES.company,
+                    content: (
+                      <div className={["space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                        {FOOTER_COMPANY_LINKS.map(({ label, href }) => (
+                          <a key={label} className="block" href={href}>{label}</a>
+                        ))}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "services" as const,
+                    title: FOOTER_SECTION_TITLES.services,
+                    content: (
+                      <div className={["space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                        {FOOTER_SERVICE_LINKS.map(({ label, href }) => (
+                          <a key={label} className="block" href={href}>{label}</a>
+                        ))}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "locations" as const,
+                    title: FOOTER_SECTION_TITLES.locations,
+                    content: (
+                      <div className="space-y-7 text-[14px]">
+                        {OFFICE_LOCATIONS.map((office) => (
+                          <div key={office.city}>
+                            <p
+                              className={["flex items-center gap-2 font-semibold text-[#e2e8f0]", isArabic ? "justify-end text-right" : ""].join(" ")}
+                              dir={isArabic ? "ltr" : "ltr"}
+                              style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
+                            >
+                              <span dir={isArabic ? "rtl" : "ltr"} className="whitespace-nowrap">
+                                {office.city}, <span className="font-normal text-[#64748b]">{office.country}</span>
+                              </span>
+                              <MapPin size={13} className="shrink-0 text-[#60a5fa]" />
+                            </p>
+                            <p
+                              className={["mt-2 flex items-center gap-2 pl-[21px] text-[12px] text-[#64748b]", isArabic ? "justify-end text-right pl-0 pr-[21px]" : ""].join(" ")}
+                              dir="ltr"
+                              style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
+                            >
+                              <span>{office.phone}</span>
+                              <Phone size={11} className="shrink-0" />
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "contact" as const,
+                    title: FOOTER_SECTION_TITLES.contact,
+                    content: (
+                      <div className="space-y-5">
+                        {FOOTER_CONTACT_CHANNELS.map(([title, value]) => (
+                          <div key={title}>
+                            <p className={["text-[12px] font-semibold text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{title}</p>
+                            <p
+                              className={["mt-2 flex items-center gap-2 text-[14px] text-[#64748b]", isArabic ? "justify-end text-right" : ""].join(" ")}
+                              dir="ltr"
+                              style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
+                            >
+                              <span>{value}</span>
+                              <Mail size={13} className="shrink-0 text-[#60a5fa]" />
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ),
+                  },
+                ].map(({ key, title, content }) => {
+                  const isOpen = openFooterSection === key;
+
+                  return (
+                    <div key={key} className="border-b border-white/10">
+                      <button
+                        className={[`${subtleButtonHoverClassName} flex w-full items-center justify-between py-4`, isArabic ? "text-right" : "text-left"].join(" ")}
+                        onClick={() => setOpenFooterSection((current) => (current === key ? null : key))}
+                        type="button"
+                        aria-expanded={isOpen}
+                        aria-controls={`footer-section-${key}`}
+                      >
+                        <span className="text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                          {title}
+                        </span>
+                        <svg
+                          aria-hidden="true"
+                          className="size-4 text-[#60a5fa] transition-transform duration-300"
+                          style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                          fill="none"
+                          viewBox="0 0 20 20"
+                          stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 8l4 4 4-4" />
+                        </svg>
+                      </button>
+                      <div
+                        id={`footer-section-${key}`}
+                        aria-hidden={!isOpen}
+                        className={[
+                          "grid transition-all duration-300 ease-out",
+                          isOpen ? "grid-rows-[1fr] pb-4 opacity-100" : "grid-rows-[0fr] opacity-0",
+                        ].join(" ")}
+                      >
+                        <div className="overflow-hidden">{content}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="border-t border-white/10 py-6 text-[12px] text-[rgba(255,255,255,0.4)]">
+                <p className="text-center" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{FOOTER_COPY.copyright}</p>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+                  {FOOTER_POLICY_LINKS.map((label) => (
+                    <a key={label} href={label === "Terms of Use" ? "/terms-of-use" : label === "Privacy Policy" ? "/privacy-policy" : "/cookie-policy"} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="hidden md:block">
+              <div className="flex items-center justify-between border-b border-white/10 pb-10">
+                <img alt="JHC" className="h-[42px] w-auto" src={logo} />
+                <p className="max-w-[620px] text-center text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                  {FOOTER_COPY.description}
+                </p>
                 <div className="flex gap-2" dir="ltr">
                   {socialButton(Linkedin, {
                     className: "size-9",
@@ -3119,45 +3875,40 @@ export default function JhcLandingPage() {
                   })}
                 </div>
               </div>
-              <p className={["mt-4 max-w-none pr-1 text-[13px] leading-[22px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                {FOOTER_COPY.description}
-              </p>
-            </div>
 
-            <div className="py-8">
-              {[
-                {
-                  key: "company" as const,
-                  title: FOOTER_SECTION_TITLES.company,
-                  content: (
-                    <div className={["space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                      {FOOTER_COMPANY_LINKS.map(({ label, href }) => (
-                        <a key={label} className="block" href={href}>{label}</a>
-                      ))}
-                    </div>
-                  ),
-                },
-                {
-                  key: "services" as const,
-                  title: FOOTER_SECTION_TITLES.services,
-                  content: (
-                    <div className={["space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                      {FOOTER_SERVICE_LINKS.map(({ label, href }) => (
-                        <a key={label} className="block" href={href}>{label}</a>
-                      ))}
-                    </div>
-                  ),
-                },
-                {
-                  key: "locations" as const,
-                  title: FOOTER_SECTION_TITLES.locations,
-                  content: (
-                    <div className="space-y-7 text-[14px]">
-                      {OFFICE_LOCATIONS.map((office) => (
+              <div className="grid grid-cols-4 gap-10 py-10">
+                <div>
+                  <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                    {FOOTER_SECTION_TITLES.company}
+                  </p>
+                  <div className={["mt-6 space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                    {FOOTER_COMPANY_LINKS.map(({ label, href }) => (
+                      <a key={label} className="block" href={href}>{label}</a>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                    {FOOTER_SECTION_TITLES.services}
+                  </p>
+                  <div className={["mt-6 space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                    {FOOTER_SERVICE_LINKS.map(({ label, href }) => (
+                      <a key={label} className="block" href={href}>{label}</a>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                    {FOOTER_SECTION_TITLES.locations}
+                  </p>
+                  <div className="mt-6 space-y-7 text-[14px]">
+                    {OFFICE_LOCATIONS.map((office) => (
                       <div key={office.city}>
                         <p
                           className={["flex items-center gap-2 font-semibold text-[#e2e8f0]", isArabic ? "justify-end text-right" : ""].join(" ")}
-                          dir={isArabic ? "ltr" : "ltr"}
+                          dir="ltr"
                           style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
                         >
                           <span dir={isArabic ? "rtl" : "ltr"} className="whitespace-nowrap">
@@ -3174,194 +3925,43 @@ export default function JhcLandingPage() {
                           <Phone size={11} className="shrink-0" />
                         </p>
                       </div>
-                      ))}
-                    </div>
-                  ),
-                },
-                {
-                  key: "contact" as const,
-                  title: FOOTER_SECTION_TITLES.contact,
-                  content: (
-                    <div className="space-y-5">
-                      {FOOTER_CONTACT_CHANNELS.map(([title, value]) => (
-                        <div key={title}>
-                          <p className={["text-[12px] font-semibold text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{title}</p>
-                          <p
-                            className={["mt-2 flex items-center gap-2 text-[14px] text-[#64748b]", isArabic ? "justify-end text-right" : ""].join(" ")}
-                            dir="ltr"
-                            style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
-                          >
-                            <span>{value}</span>
-                            <Mail size={13} className="shrink-0 text-[#60a5fa]" />
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  ),
-                },
-              ].map(({ key, title, content }) => {
-                const isOpen = openFooterSection === key;
-
-                return (
-                  <div key={key} className="border-b border-white/10">
-                    <button
-                      className={[`${subtleButtonHoverClassName} flex w-full items-center justify-between py-4`, isArabic ? "text-right" : "text-left"].join(" ")}
-                      onClick={() => setOpenFooterSection((current) => (current === key ? null : key))}
-                      type="button"
-                      aria-expanded={isOpen}
-                      aria-controls={`footer-section-${key}`}
-                    >
-                      <span className="text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                        {title}
-                      </span>
-                      <svg
-                        aria-hidden="true"
-                        className="size-4 text-[#60a5fa] transition-transform duration-300"
-                        style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-                        fill="none"
-                        viewBox="0 0 20 20"
-                        stroke="currentColor"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M6 8l4 4 4-4" />
-                      </svg>
-                    </button>
-                    <div
-                      id={`footer-section-${key}`}
-                      aria-hidden={!isOpen}
-                      className={[
-                        "grid transition-all duration-300 ease-out",
-                        isOpen ? "grid-rows-[1fr] pb-4 opacity-100" : "grid-rows-[0fr] opacity-0",
-                      ].join(" ")}
-                    >
-                      <div className="overflow-hidden">{content}</div>
-                    </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-
-            <div className="border-t border-white/10 py-6 text-[12px] text-[rgba(255,255,255,0.4)]">
-              <p className="text-center" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{FOOTER_COPY.copyright}</p>
-              <div className="mt-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
-                {FOOTER_POLICY_LINKS.map((label) => (
-                  <a key={label} href={label === "Terms of Use" ? "/terms-of-use" : label === "Privacy Policy" ? "/privacy-policy" : "/cookie-policy"} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="hidden md:block">
-            <div className="flex items-center justify-between border-b border-white/10 pb-10">
-            <img alt="JHC" className="h-[42px] w-auto" src={logo} />
-            <p className="max-w-[620px] text-center text-[13px] leading-[22px] text-[#64748b]" style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-              {FOOTER_COPY.description}
-            </p>
-            <div className="flex gap-2" dir="ltr">
-              {socialButton(Linkedin, {
-                className: "size-9",
-                iconClassName: "text-[#94a3b8]",
-                iconSize: 13,
-                strokeWidth: 1.6,
-                fill: true,
-                href: SOCIAL_LINKS.linkedin,
-              })}
-              {socialButton(Facebook, {
-                className: "size-9",
-                iconClassName: "text-[#94a3b8]",
-                iconSize: 13,
-                strokeWidth: 1.6,
-                fill: true,
-                href: SOCIAL_LINKS.facebook,
-              })}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-4 gap-10 py-10">
-            <div>
-              <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                {FOOTER_SECTION_TITLES.company}
-              </p>
-              <div className={["mt-6 space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                {FOOTER_COMPANY_LINKS.map(({ label, href }) => (
-                  <a key={label} className="block" href={href}>{label}</a>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                {FOOTER_SECTION_TITLES.services}
-              </p>
-              <div className={["mt-6 space-y-[14px] text-[14px] text-[#64748b]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                {FOOTER_SERVICE_LINKS.map(({ label, href }) => (
-                  <a key={label} className="block" href={href}>{label}</a>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                {FOOTER_SECTION_TITLES.locations}
-              </p>
-              <div className="mt-6 space-y-7 text-[14px]">
-                {OFFICE_LOCATIONS.map((office) => (
-                <div key={office.city}>
-                  <p
-                    className={["flex items-center gap-2 font-semibold text-[#e2e8f0]", isArabic ? "justify-end text-right" : ""].join(" ")}
-                    dir="ltr"
-                    style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
-                  >
-                    <span dir={isArabic ? "rtl" : "ltr"} className="whitespace-nowrap">
-                      {office.city}, <span className="font-normal text-[#64748b]">{office.country}</span>
-                    </span>
-                    <MapPin size={13} className="shrink-0 text-[#60a5fa]" />
-                  </p>
-                  <p
-                    className={["mt-2 flex items-center gap-2 pl-[21px] text-[12px] text-[#64748b]", isArabic ? "justify-end text-right pl-0 pr-[21px]" : ""].join(" ")}
-                    dir="ltr"
-                    style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
-                  >
-                    <span>{office.phone}</span>
-                    <Phone size={11} className="shrink-0" />
-                  </p>
                 </div>
-                ))}
-              </div>
-            </div>
 
-            <div>
-              <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
-                {FOOTER_SECTION_TITLES.contact}
-              </p>
-              <div className="mt-6 space-y-5">
-                {FOOTER_CONTACT_CHANNELS.map(([title, value]) => (
-                  <div key={title}>
-                    <p className={["text-[12px] font-semibold text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{title}</p>
-                    <p
-                      className={["mt-2 flex items-center gap-2 text-[14px] text-[#64748b]", isArabic ? "justify-end text-right" : ""].join(" ")}
-                      dir="ltr"
-                      style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
-                    >
-                      <span>{value}</span>
-                      <Mail size={13} className="shrink-0 text-[#60a5fa]" />
-                    </p>
+                <div>
+                  <p className={["border-b border-[#60a5fa]/20 pb-3 text-[12px] font-bold uppercase tracking-[1.2px] text-[#60a5fa]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>
+                    {FOOTER_SECTION_TITLES.contact}
+                  </p>
+                  <div className="mt-6 space-y-5">
+                    {FOOTER_CONTACT_CHANNELS.map(([title, value]) => (
+                      <div key={title}>
+                        <p className={["text-[12px] font-semibold text-[#94a3b8]", isArabic ? "text-right" : ""].join(" ")} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{title}</p>
+                        <p
+                          className={["mt-2 flex items-center gap-2 text-[14px] text-[#64748b]", isArabic ? "justify-end text-right" : ""].join(" ")}
+                          dir="ltr"
+                          style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}
+                        >
+                          <span>{value}</span>
+                          <Mail size={13} className="shrink-0 text-[#60a5fa]" />
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-white/10 py-6 text-[12px] text-[rgba(255,255,255,0.4)]">
+                <p style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{FOOTER_COPY.copyright}</p>
+                <div className="flex gap-6">
+                  {FOOTER_POLICY_LINKS.map((label) => (
+                    <a key={label} href={label === "Terms of Use" ? "/terms-of-use" : label === "Privacy Policy" ? "/privacy-policy" : "/cookie-policy"} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-
-          <div className="flex items-center justify-between border-t border-white/10 py-6 text-[12px] text-[rgba(255,255,255,0.4)]">
-            <p style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{FOOTER_COPY.copyright}</p>
-            <div className="flex gap-6">
-              {FOOTER_POLICY_LINKS.map((label) => (
-                <a key={label} href={label === "Terms of Use" ? "/terms-of-use" : label === "Privacy Policy" ? "/privacy-policy" : "/cookie-policy"} style={isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined}>{label}</a>
-              ))}
-            </div>
-          </div>
-          </div>
-        </div>
-      </footer>
+        </footer>
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ export type JobRecord = {
   employmentType: string;
   experienceLevel: string;
   salaryRange: string | null;
+  salaryCurrency: string | null;
   skills: string | null;
   applicationDeadline: string | null;
   status?: JobStatus;
@@ -48,12 +49,15 @@ export type SaveJobRequest = {
   employmentType: string;
   experienceLevel: string;
   salaryRange?: string;
+  salaryCurrency?: string | null;
   skills?: string[] | string;
   applicationDeadline?: string | null;
 };
 
-function normalizeStatus(value: string | null): JobStatus | undefined {
-  if (value === "Draft" || value === "Published" || value === "Closed") return value;
+function normalizeStatus(value: string | number | null): JobStatus | undefined {
+  if (value === "Draft" || value === "0" || value === 0) return "Draft";
+  if (value === "Published" || value === "1" || value === 1) return "Published";
+  if (value === "Closed" || value === "2" || value === 2) return "Closed";
   return undefined;
 }
 
@@ -69,9 +73,10 @@ function normalizeJob(payload: unknown): JobRecord {
     employmentType: getStringValue(record, ["employmentType"]) ?? "",
     experienceLevel: getStringValue(record, ["experienceLevel"]) ?? "",
     salaryRange: getStringValue(record, ["salaryRange"]) ?? null,
+    salaryCurrency: getStringValue(record, ["salaryCurrency"]) ?? null,
     skills: getStringValue(record, ["skills"]) ?? null,
     applicationDeadline: getStringValue(record, ["applicationDeadline", "deadline"]) ?? null,
-    status: normalizeStatus(getStringValue(record, ["status"])),
+    status: normalizeStatus(getStringValue(record, ["status"]) ?? getNumberValue(record, ["status"])),
     slug: getStringValue(record, ["slug"]) ?? "",
     createdByAdminId: getNumberValue(record, ["createdByAdminId"]) ?? undefined,
     createdByAdminName: getStringValue(record, ["createdByAdminName"]) ?? undefined,
@@ -103,9 +108,21 @@ function normalizeJobPayload(payload: SaveJobRequest) {
     EmploymentType: payload.employmentType,
     ExperienceLevel: payload.experienceLevel,
     SalaryRange: payload.salaryRange?.trim() || null,
+    SalaryCurrency: payload.salaryCurrency?.trim() || null,
     Skills: skills?.trim() || null,
     ApplicationDeadline: payload.applicationDeadline || null,
   };
+}
+
+export function formatJobSalary(job: Pick<JobRecord, "salaryRange" | "salaryCurrency">) {
+  const salaryRange = job.salaryRange?.trim();
+  const salaryCurrency = job.salaryCurrency?.trim();
+  if (!salaryRange) return "";
+  if (!salaryCurrency) return salaryRange;
+
+  const currencyPattern = new RegExp(`(^|\\s)${salaryCurrency}(\\s|$)`, "i");
+  if (currencyPattern.test(salaryRange)) return salaryRange;
+  return `${salaryRange} ${salaryCurrency}`;
 }
 
 export function splitJobSkills(skills: string | null | undefined) {

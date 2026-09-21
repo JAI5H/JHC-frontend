@@ -17,6 +17,17 @@ import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/util
 
 const EMPLOYMENT_TYPES = ["Full-time", "Part-time", "Contract", "Remote", "Freelance"];
 const EXPERIENCE_LEVELS = ["Entry Level", "Mid Level", "Senior", "Manager", "Director", "Executive"];
+const SALARY_CURRENCIES = [
+  { code: "EGP", label: "Egyptian Pound" },
+  { code: "SAR", label: "Saudi Riyal" },
+  { code: "USD", label: "US Dollar" },
+  { code: "EUR", label: "Euro" },
+  { code: "AED", label: "UAE Dirham" },
+  { code: "QAR", label: "Qatari Riyal" },
+  { code: "KWD", label: "Kuwaiti Dinar" },
+  { code: "BHD", label: "Bahraini Dinar" },
+  { code: "OMR", label: "Omani Rial" },
+];
 const GCC_LOCATIONS = [
   "Riyadh, Saudi Arabia",
   "Jeddah, Saudi Arabia",
@@ -125,6 +136,7 @@ export default function AdminJobFormPage() {
   const [employmentType, setEmploymentType] = useState("");
   const [experienceLevel, setExperienceLevel] = useState("");
   const [salaryRange, setSalaryRange] = useState("");
+  const [salaryCurrency, setSalaryCurrency] = useState("");
   const [skills, setSkills] = useState<string[]>([]);
   const [deadline, setDeadline] = useState("");
   const [targetStatus, setTargetStatus] = useState<JobStatus>("Draft");
@@ -152,6 +164,7 @@ export default function AdminJobFormPage() {
         setEmploymentType(job.employmentType);
         setExperienceLevel(job.experienceLevel);
         setSalaryRange(job.salaryRange ?? "");
+        setSalaryCurrency(job.salaryCurrency ?? "");
         setSkills(splitJobSkills(job.skills));
         setDeadline(job.applicationDeadline ? job.applicationDeadline.slice(0, 10) : "");
         setTargetStatus(job.status ?? "Draft");
@@ -175,6 +188,7 @@ export default function AdminJobFormPage() {
     if (!location.trim()) nextErrors.location = "Location is required.";
     if (!employmentType) nextErrors.employmentType = "Employment type is required.";
     if (!experienceLevel) nextErrors.experienceLevel = "Experience level is required.";
+    if (salaryRange.trim() && !salaryCurrency) nextErrors.salaryCurrency = "Currency is required when salary range is provided.";
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -204,6 +218,7 @@ export default function AdminJobFormPage() {
         employmentType,
         experienceLevel,
         salaryRange,
+        salaryCurrency,
         skills,
         applicationDeadline: deadline || null,
       };
@@ -307,7 +322,32 @@ export default function AdminJobFormPage() {
                 <div className="flex flex-col gap-4">
                   <div>
                     <label style={labelSt}>Salary Range</label>
-                    <input value={salaryRange} onChange={(event) => setSalaryRange(event.target.value)} placeholder="e.g. SAR 18,000 - 25,000 / mo" style={inputSt} />
+                    <div className="grid gap-2 sm:grid-cols-[1fr_112px]">
+                      <input value={salaryRange} onChange={(event) => setSalaryRange(event.target.value)} placeholder="e.g. 18,000 - 25,000 / mo" style={inputSt} />
+                      <div className="relative">
+                        <select
+                          aria-label="Salary currency"
+                          value={salaryCurrency}
+                          onChange={(event) => setSalaryCurrency(event.target.value)}
+                          style={{
+                            ...inputSt,
+                            appearance: "none",
+                            cursor: "pointer",
+                            borderColor: errors.salaryCurrency ? "#DC2626" : "#E2E8F0",
+                            paddingRight: "32px",
+                          }}
+                        >
+                          <option value="">Currency</option>
+                          {SALARY_CURRENCIES.map((currency) => (
+                            <option key={currency.code} value={currency.code}>
+                              {currency.code} — {currency.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown size={13} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "#94A3B8" }} />
+                      </div>
+                    </div>
+                    <FieldError msg={errors.salaryCurrency} />
                   </div>
                   <div>
                     <label style={labelSt}>Application Deadline</label>

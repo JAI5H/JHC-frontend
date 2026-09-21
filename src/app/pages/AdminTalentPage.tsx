@@ -28,6 +28,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 import { useIsMobile } from "../components/ui/use-mobile";
 import {
   deriveCandidateStatsFromList,
@@ -299,62 +305,52 @@ function CandidateStatusActionsMenu({
   updating: boolean;
 }) {
   return (
-    <div className="relative inline-flex">
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggle();
-        }}
-        className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
-        style={{ borderColor: "#E2E8F0", color: "#0B1F4D", background: "#ffffff" }}
+    <DropdownMenu open={open} onOpenChange={(nextOpen) => {
+      if (nextOpen) {
+        onToggle();
+      } else {
+        onClose();
+      }
+    }}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          onClick={(event) => event.stopPropagation()}
+          className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-[transform,background-color,border-color,color] duration-200 ease-out hover:-translate-y-px active:translate-y-0"
+          style={{ borderColor: "#E2E8F0", color: "#0B1F4D", background: "#ffffff" }}
+        >
+          Update Status
+          <ChevronDown size={12} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        collisionPadding={16}
+        className="z-[100] w-[220px] overflow-hidden rounded-xl bg-white p-0 shadow-xl"
+        style={{ border: "1px solid #E2E8F0", boxShadow: "0 12px 32px rgba(15,23,42,0.12)" }}
+        onClick={(event) => event.stopPropagation()}
       >
-        Update Status
-        <ChevronDown size={12} />
-      </button>
-
-      {open ? (
-        <>
-          <div className="fixed inset-0 z-10" onClick={onClose} />
-          <div
-            className="absolute right-0 top-full z-20 mt-2 w-[220px] overflow-hidden rounded-xl bg-white"
-            style={{ border: "1px solid #E2E8F0", boxShadow: "0 12px 32px rgba(15,23,42,0.12)" }}
-          >
-            <div className="border-b px-3 py-2.5 text-[11px] leading-5" style={{ borderColor: "#E2E8F0", color: "#94A3B8" }}>
-              Move {candidate.name} through the review workflow.
-            </div>
-            <div className="p-2">
-              {CANDIDATE_WORKFLOW_ACTIONS.map((action) => (
-                <button
-                  key={action}
-                  type="button"
-                  disabled={updating}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSelect(action);
-                  }}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors"
-                  style={{ color: "#0B1F4D", background: "transparent", cursor: updating ? "not-allowed" : "pointer" }}
-                  onMouseEnter={(e) => {
-                    if (!updating) {
-                      (e.currentTarget as HTMLElement).style.background = "#F8FAFC";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!updating) {
-                      (e.currentTarget as HTMLElement).style.background = "transparent";
-                    }
-                  }}
-                >
-                  <span>{STATUS_ACTION_LABELS[action]}</span>
-                  <span style={{ color: "#94A3B8" }}>{updating ? "Saving..." : "Apply"}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      ) : null}
-    </div>
+        <div className="border-b px-3 py-2.5 text-[11px] leading-5" style={{ borderColor: "#E2E8F0", color: "#94A3B8" }}>
+          Move {candidate.name} through the review workflow.
+        </div>
+        <div className="p-2">
+          {CANDIDATE_WORKFLOW_ACTIONS.map((action) => (
+            <DropdownMenuItem
+              key={action}
+              disabled={updating}
+              onSelect={() => onSelect(action)}
+              className="flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors focus:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ color: "#0B1F4D" }}
+            >
+              <span>{STATUS_ACTION_LABELS[action]}</span>
+              <span style={{ color: "#94A3B8" }}>{updating ? "Saving..." : "Apply"}</span>
+            </DropdownMenuItem>
+          ))}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -381,6 +377,8 @@ function buildCandidatesCsv(
     { key: "currentJobTitle", label: "Job Title", getValue: (candidate: CandidateRecord) => candidate.currentJobTitle },
     { key: "yearsOfExperience", label: "Years Of Experience", getValue: (candidate: CandidateRecord) => candidate.yearsOfExperience },
     { key: "industry", label: "Industry", getValue: (candidate: CandidateRecord) => candidate.industry },
+    { key: "expectedSalary", label: "Expected Salary", getValue: (candidate: CandidateRecord) => candidate.expectedSalary },
+    { key: "salaryCurrency", label: "Salary Currency", getValue: (candidate: CandidateRecord) => candidate.salaryCurrency },
     {
       key: "employmentType",
       label: "Employment Type",
@@ -476,7 +474,7 @@ function CandidateDetailsPanel({
         <CandidateDetailField label="Job Title" value={candidate.currentJobTitle} />
         <CandidateDetailField label="Years of Experience" value={candidate.yearsOfExperience} />
         <CandidateDetailField label="Industry" value={candidate.industry} />
-        <CandidateDetailField label="Expected Salary" value={candidate.expectedSalary} />
+        <CandidateDetailField label="Expected Salary" value={candidate.expectedSalary && (candidate.salaryCurrency || candidate.expectedSalary) ? `${candidate.expectedSalary}${candidate.salaryCurrency ? ` ${candidate.salaryCurrency}` : ""}` : candidate.expectedSalary} />
         {employmentTypeValues && employmentTypeValues.length > 0 ? (
           <div className="grid gap-1.5 rounded-xl bg-[#F8FAFC] px-4 py-3">
             <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "#94A3B8" }}>

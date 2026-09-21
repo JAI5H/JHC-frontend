@@ -10,7 +10,7 @@ import { getAxiosErrorDetails } from "../../services/api/utils";
 
 /* ─── Types ─── */
 type Step1 = { fullName: string; email: string; phone: string; nationality: string; currentCountry: string; currentCity: string };
-type Step2 = { jobTitle: string; industry: string; yearsExperience: string; expectedSalary: string; employmentType: string[] };
+type Step2 = { jobTitle: string; industry: string; yearsExperience: string; expectedSalary: string; salaryCurrency: string; employmentType: string[] };
 type Step3 = { preferredCountry: string; englishLevel: string; linkedinUrl: string; notes: string; cvFile: File | null };
 type SelectOption = string | { label: string; value: string };
 
@@ -41,7 +41,7 @@ const S = {
 function isAllowedCvFile(file: File) {
   const normalizedName = file.name.toLowerCase();
   const hasAllowedExtension = ALLOWED_CV_EXTENSIONS.some((extension) => normalizedName.endsWith(extension));
-  const hasAllowedMimeType = !file.type || ALLOWED_CV_MIME_TYPES.includes(file.type);
+  const hasAllowedMimeType = !file.type || file.type === "application/octet-stream" || ALLOWED_CV_MIME_TYPES.includes(file.type);
 
   return hasAllowedExtension && hasAllowedMimeType && !normalizedName.includes("\0");
 }
@@ -400,7 +400,20 @@ function Step2Form({
           <Input name="yearsExperience" value={data.yearsExperience} onChange={onChange} type="number" placeholder={talentNetwork.step2.placeholders.yearsExperience} />
         </Field>
         <Field label={talentNetwork.step2.fields.expectedSalary} required>
-          <Input name="expectedSalary" value={data.expectedSalary} onChange={onChange} placeholder={talentNetwork.step2.placeholders.expectedSalary} />
+          <div style={{ display: "flex", gap: "8px" }}>
+            <div style={{ flex: "1 1 0%", minWidth: 0 }}>
+              <Input name="expectedSalary" value={data.expectedSalary} onChange={onChange} type="number" placeholder={talentNetwork.step2.placeholders.expectedSalary} />
+            </div>
+            <div style={{ width: "130px", flexShrink: 0 }}>
+              <Select
+                name="salaryCurrency"
+                value={data.salaryCurrency}
+                onChange={onChange}
+                options={["USD", "SAR", "EGP", "EUR", "GBP", "AED", "KWD", "QAR"]}
+                placeholder={talentNetwork.step2.placeholders.salaryCurrency}
+              />
+            </div>
+          </div>
         </Field>
       </div>
 
@@ -718,7 +731,7 @@ export default function TalentNetworkPage() {
   const [fileError, setFileError] = useState<string | null>(null);
 
   const [s1, setS1] = useState<Step1>({ fullName: "", email: "", phone: "", nationality: "", currentCountry: "", currentCity: "" });
-  const [s2, setS2] = useState<Step2>({ jobTitle: "", industry: "", yearsExperience: "", expectedSalary: "", employmentType: [] });
+  const [s2, setS2] = useState<Step2>({ jobTitle: "", industry: "", yearsExperience: "", expectedSalary: "", salaryCurrency: "USD", employmentType: [] });
   const [s3, setS3] = useState<Step3>({ preferredCountry: "", englishLevel: "", linkedinUrl: "", notes: "", cvFile: null });
 
   const clearSubmissionFeedback = () => {
@@ -809,6 +822,7 @@ export default function TalentNetworkPage() {
         YearsOfExperience: s2.yearsExperience,
         Industry: s2.industry,
         ExpectedSalary: s2.expectedSalary,
+        SalaryCurrency: s2.salaryCurrency || "USD",
         EmploymentType: s2.employmentType,
         PreferredWorkCountry: s3.preferredCountry,
         EnglishLevel: s3.englishLevel,

@@ -1,6 +1,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  color-scheme: light;
   --font-family-en: 'Sora', system-ui, sans-serif;
   --font-family-ar: 'Cairo', system-ui, sans-serif;
   --font-family-app: var(--font-family-en);

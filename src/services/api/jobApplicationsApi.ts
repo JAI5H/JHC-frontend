@@ -11,6 +11,7 @@ type RequestOptions = {
 };
 
 export type ReadyToStart = "Yes" | "No" | "Other";
+export type JobApplicationStatus = "New" | "UnderReview" | "Shortlisted" | "Hired" | "Rejected";
 
 export type JobApplicationRecord = {
   id: number;
@@ -19,14 +20,26 @@ export type JobApplicationRecord = {
   name: string;
   age: number;
   nationality: string;
+  location: string;
   experience: string;
   readyToStart: ReadyToStart | string;
   expectedSalary: string;
+  expectedSalaryCurrency: string | null;
   additionalNotes: string | null;
   cvFileName: string;
   cvUrl: string | null;
+  status: JobApplicationStatus;
   createdAt: string | null;
   updatedAt: string | null;
+};
+
+export type JobApplicationStats = {
+  totalApplications: number;
+  newApplications: number;
+  underReviewApplications: number;
+  shortlistedApplications: number;
+  hiredApplications: number;
+  rejectedApplications: number;
 };
 
 export type JobApplicationsQuery = {
@@ -41,9 +54,19 @@ export type CreateJobApplicationRequest = {
   experience: string;
   readyToStart: ReadyToStart;
   expectedSalary: string;
+  expectedSalaryCurrency?: string;
   additionalNotes?: string;
   cv: File;
 };
+
+function normalizeApplicationStatus(value: string | null | undefined): JobApplicationStatus {
+  const normalized = value?.trim().toLowerCase().replace(/[\s_-]/g, "");
+  if (normalized === "underreview" || normalized === "reviewed" || normalized === "interview") return "UnderReview";
+  if (normalized === "shortlisted") return "Shortlisted";
+  if (normalized === "hired") return "Hired";
+  if (normalized === "rejected") return "Rejected";
+  return "New";
+}
 
 function normalizeApplication(payload: unknown): JobApplicationRecord {
   const record = getObjectCandidate(payload);
@@ -54,14 +77,31 @@ function normalizeApplication(payload: unknown): JobApplicationRecord {
     name: getStringValue(record, ["name"]) ?? "",
     age: getNumberValue(record, ["age"]) ?? 0,
     nationality: getStringValue(record, ["nationality"]) ?? "",
+    location: getStringValue(record, ["location", "country", "currentCountry"]) ?? "",
     experience: getStringValue(record, ["experience"]) ?? "",
     readyToStart: getStringValue(record, ["readyToStart"]) ?? "",
     expectedSalary: getStringValue(record, ["expectedSalary"]) ?? "",
+    expectedSalaryCurrency: getStringValue(record, ["expectedSalaryCurrency", "ExpectedSalaryCurrency"]) ?? null,
     additionalNotes: getStringValue(record, ["additionalNotes"]) ?? null,
     cvFileName: getStringValue(record, ["cvFileName"]) ?? "",
     cvUrl: getStringValue(record, ["cvUrl"]) ?? null,
+    status: normalizeApplicationStatus(getStringValue(record, ["status", "Status"])),
     createdAt: getStringValue(record, ["createdAt"]) ?? null,
     updatedAt: getStringValue(record, ["updatedAt"]) ?? null,
+  };
+}
+
+function normalizeApplicationStats(payload: unknown): JobApplicationStats {
+  const envelope = getObjectCandidate(payload);
+  const dataRecord = getObjectCandidate(envelope?.data) ?? envelope;
+
+  return {
+    totalApplications: getNumberValue(dataRecord, ["totalApplications", "TotalApplications", "total", "totalCount", "TotalCount", "count"]) ?? 0,
+    newApplications: getNumberValue(dataRecord, ["newApplications", "NewApplications", "new", "New", "newCount", "NewCount"]) ?? 0,
+    underReviewApplications: getNumberValue(dataRecord, ["underReviewApplications", "UnderReviewApplications", "underReview", "UnderReview", "underReviewCount", "UnderReviewCount"]) ?? 0,
+    shortlistedApplications: getNumberValue(dataRecord, ["shortlistedApplications", "ShortlistedApplications", "shortlisted", "Shortlisted", "shortlistedCount", "ShortlistedCount"]) ?? 0,
+    hiredApplications: getNumberValue(dataRecord, ["hiredApplications", "HiredApplications", "hired", "Hired", "hiredCount", "HiredCount"]) ?? 0,
+    rejectedApplications: getNumberValue(dataRecord, ["rejectedApplications", "RejectedApplications", "rejected", "Rejected", "rejectedCount", "RejectedCount"]) ?? 0,
   };
 }
 
@@ -73,6 +113,9 @@ function toFormData(payload: CreateJobApplicationRequest) {
   formData.append("Experience", payload.experience);
   formData.append("ReadyToStart", payload.readyToStart);
   formData.append("ExpectedSalary", payload.expectedSalary);
+  if (payload.expectedSalary.trim() && payload.expectedSalaryCurrency?.trim()) {
+    formData.append("ExpectedSalaryCurrency", payload.expectedSalaryCurrency.trim());
+  }
   formData.append("AdditionalNotes", payload.additionalNotes ?? "");
   formData.append("Cv", payload.cv);
   return formData;
@@ -112,4 +155,39 @@ export async function getJobApplicationById(
     signal: options?.signal,
   });
   return normalizeApplication(response.data);
+}
+
+export async function getJobApplicationStats(jobId: number, options?: RequestOptions) {
+  const response = await apiClient.get(`/api/jobs/${jobId}/applications/stats`, {
+    signal: options?.signal,
+  });
+  return normalizeApplicationStats(response.data);
+}
+
+export async function updateJobApplicationStatus(
+  jobId: number,
+  applicationId: number,
+  status: JobApplicationStatus,
+) {
+  const response = await apiClient.patch(`/api/jobs/${jobId}/applications/${applicationId}/status`, {
+    status,
+  });
+  return normalizeApplication(response.data);
+}
+
+export async function getJobApplicationCv(
+  jobId: number,
+  applicationId: number,
+  options?: RequestOptions,
+) {
+  const response = await apiClient.get<Blob>(`/api/jobs/${jobId}/applications/${applicationId}/cv`, {
+    signal: options?.signal,
+    responseType: "blob",
+  });
+
+  return {
+    blob: response.data,
+    contentDisposition: response.headers["content-disposition"] as string | undefined,
+    contentType: response.headers["content-type"] as string | undefined,
+  };
 }

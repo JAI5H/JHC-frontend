@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { AlertCircle, BriefcaseBusiness, Edit3, EyeOff, Lock, Plus, Search, Trash2, Users } from "lucide-react";
+import { AlertCircle, ArrowRight, BriefcaseBusiness, Edit3, Eye, EyeOff, Lock, Plus, Search, Trash2 } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
 import { hasAdminAccessToken } from "../components/admin/adminSession";
+import { getJobApplications } from "../../services/api/jobApplicationsApi";
 import {
   closeJob,
   deleteJob,
@@ -45,6 +46,7 @@ export default function AdminJobsPage() {
   const [status, setStatus] = useState<JobStatus | "all">("all");
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [applicantCountsByJobId, setApplicantCountsByJobId] = useState<Record<number, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -62,6 +64,7 @@ export default function AdminJobsPage() {
     if (!hasAdminAccessToken()) {
       setJobs([]);
       setTotalCount(0);
+      setApplicantCountsByJobId({});
       setIsLoading(false);
       return;
     }
@@ -70,6 +73,7 @@ export default function AdminJobsPage() {
     setIsLoading(true);
     setError("");
     setJobs([]);
+    setApplicantCountsByJobId({});
 
     try {
       const result = await getAdminJobs(
@@ -82,8 +86,22 @@ export default function AdminJobsPage() {
         { signal },
       );
       if (signal?.aborted) return;
+
+      const applicantCountEntries = await Promise.all(
+        result.items.map(async (job) => {
+          const applicationsResult = await getJobApplications(
+            job.id,
+            { pageNumber: 1, pageSize: 1 },
+            { signal },
+          );
+          return [job.id, applicationsResult.totalCount] as const;
+        }),
+      );
+
+      if (signal?.aborted) return;
       setJobs(result.items);
       setTotalCount(result.totalCount);
+      setApplicantCountsByJobId(Object.fromEntries(applicantCountEntries));
     } catch (requestError) {
       if (isRequestCanceled(requestError) || signal?.aborted) return;
       setError(getAxiosErrorMessage(requestError, "Unable to load jobs right now."));
@@ -251,8 +269,14 @@ export default function AdminJobsPage() {
               <table className="w-full" style={{ borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #E2E8F0" }}>
-                    {["Job", "Location", "Status", "Deadline", "Actions"].map((heading) => (
-                      <th key={heading} className="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ background: "#F8FAFC", color: "#94A3B8" }}>{heading}</th>
+                    {["Job", "Location", "Status", "Deadline", "Applications", "Actions"].map((heading) => (
+                      <th
+                        key={heading}
+                        className={["px-5 py-3 text-xs font-bold uppercase tracking-wider", heading === "Applications" ? "text-center" : "text-left"].join(" ")}
+                        style={{ background: "#F8FAFC", color: "#94A3B8" }}
+                      >
+                        {heading}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -270,13 +294,24 @@ export default function AdminJobsPage() {
                         <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{job.location}</td>
                         <td className="px-5 py-4"><StatusPill status={statusValue} /></td>
                         <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{formatDate(job.applicationDeadline)}</td>
+                        <td className="px-5 py-4 text-center">
+                          <Link
+                            to={`/admin/jobs/${job.id}/applicants`}
+                            aria-label={`View ${applicantCountsByJobId[job.id] ?? 0} applications`}
+                            className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-1.5 text-xs font-semibold text-[#1D4ED8] transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-[#93C5FD] hover:bg-[#DBEAFE] hover:text-[#0B1F4D] hover:shadow-[0_6px_14px_rgba(29,78,216,0.10)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1D4ED8]"
+                          >
+                            <span>{applicantCountsByJobId[job.id] ?? 0}</span>
+                            <span>Applications</span>
+                            <ArrowRight size={12} />
+                          </Link>
+                        </td>
                         <td className="px-5 py-4">
                           <div className="flex flex-wrap gap-2">
                             <Link to={`/admin/jobs/${job.id}/edit`} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold" style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}>
                               <Edit3 size={12} /> Edit
                             </Link>
-                            <Link to={`/admin/jobs/${job.id}/applicants`} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold" style={{ borderColor: "#BFDBFE", color: "#1D4ED8" }}>
-                              <Users size={12} /> Applicants
+                            <Link to={`/admin/jobs/${job.id}`} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold" style={{ borderColor: "#BFDBFE", color: "#1D4ED8" }}>
+                              <Eye size={12} /> View
                             </Link>
                             {statusValue !== "Published" && statusValue !== "Closed" ? (
                               <button disabled={disabled} onClick={() => void updateJobStatus(job, "publish")} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold" style={{ borderColor: "#BBF7D0", color: "#16A34A" }}>

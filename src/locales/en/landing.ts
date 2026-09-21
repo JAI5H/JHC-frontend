@@ -20,7 +20,7 @@ export const landing = {
     main: {
       eyebrow: "GCC's Strategic Operating Partner",
       title: "Strategic Operating Models That Drive Real Growth.",
-      highlightedText: "That Drive Real Growth.",
+      highlightedText: "Real Growth.",
       description:
         "We partner with leading enterprises across Saudi Arabia and the GCC to design, execute, and manage flexible operating models and managed teams that optimize efficiency and reduce operational costs.",
       primaryCta: "Start Your Partnership",

@@ -40,14 +40,16 @@ export const talentNetwork = {
       jobTitle: "Position Applied For",
       industry: "Industry / Sector",
       yearsExperience: "Years of Experience",
-      expectedSalary: "Expected Monthly Salary (USD)",
+      expectedSalary: "Expected Monthly Salary",
+      salaryCurrency: "Currency",
       employmentType: "Preferred Employment Type",
     },
     placeholders: {
       jobTitle: "e.g. Operations Manager",
       industry: "Select your industry",
       yearsExperience: "e.g., 5",
-      expectedSalary: "Amount in USD",
+      expectedSalary: "e.g., 5000",
+      salaryCurrency: "Select currency",
     },
     employmentOptions: [
       { value: "remote-employee", label: "Remote Employee", desc: "Work remotely for GCC clients" },

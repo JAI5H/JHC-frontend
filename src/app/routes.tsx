@@ -10,6 +10,7 @@ import AdminSettingsPage from "./pages/AdminSettingsPage";
 import AdminArticlesPage from "./pages/AdminArticlesPage";
 import AdminArticleFormPage from "./pages/AdminArticleFormPage";
 import AdminJobsPage from "./pages/AdminJobsPage";
+import AdminJobDetailsPage from "./pages/AdminJobDetailsPage";
 import AdminJobFormPage from "./pages/AdminJobFormPage";
 import AdminJobApplicantsPage from "./pages/AdminJobApplicantsPage";
 import ArticlesPage from "./pages/ArticlesPage";
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
   { path: "/admin/articles/:id/edit", Component: AdminArticleFormPage },
   { path: "/admin/jobs",         Component: AdminJobsPage },
   { path: "/admin/jobs/new",     Component: AdminJobFormPage },
+  { path: "/admin/jobs/:id",     Component: AdminJobDetailsPage },
   { path: "/admin/jobs/:id/edit", Component: AdminJobFormPage },
   { path: "/admin/jobs/:id/applicants", Component: AdminJobApplicantsPage },
   { path: "/admin/administrators", Component: AdminAdministratorsPage },

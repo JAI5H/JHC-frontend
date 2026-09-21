@@ -35,6 +35,7 @@ export type CandidateRecord = {
   currentCountry: string;
   currentCity?: string;
   expectedSalary?: string;
+  salaryCurrency?: string;
   employmentType?: string[];
   preferredWorkCountry?: string;
   englishLevel?: string;
@@ -96,7 +97,8 @@ function normalizeCandidate(item: unknown, index: number): CandidateRecord {
     industry: getStringValue(record, ["industry"]) ?? "",
     currentCountry: getStringValue(record, ["currentCountry", "country", "preferredWorkCountry"]) ?? "Not specified",
     currentCity: getStringValue(record, ["currentCity", "city"]),
-    expectedSalary: getStringValue(record, ["expectedSalary"]),
+    expectedSalary: getStringValue(record, ["expectedSalary", "ExpectedSalary", "expected_salary"]),
+    salaryCurrency: getStringValue(record, ["salaryCurrency", "SalaryCurrency", "salary_currency"]),
     employmentType: normalizedEmploymentType,
     preferredWorkCountry: getStringValue(record, ["preferredWorkCountry", "preferredCountry"]),
     englishLevel: getStringValue(record, ["englishLevel", "englishProficiency"]),

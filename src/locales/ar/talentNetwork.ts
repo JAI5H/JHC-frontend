@@ -87,14 +87,16 @@ export const talentNetwork = {
       jobTitle: "الوظيفة المتقدم لها",
       industry: "الصناعة / القطاع",
       yearsExperience: "سنوات الخبرة",
-      expectedSalary: "الراتب الشهري المتوقع (بالدولار الأمريكي)",
+      expectedSalary: "الراتب الشهري المتوقع",
+      salaryCurrency: "العملة",
       employmentType: "نوع التوظيف المفضل",
     },
     placeholders: {
       jobTitle: "مثال: مدير موارد بشرية",
       industry: "اختر مجال عملك",
       yearsExperience: "على سبيل المثال، 5",
-      expectedSalary: "المبلغ بالدولار الأمريكي",
+      expectedSalary: "مثال: 5000",
+      salaryCurrency: "اختر العملة",
     },
     employmentOptions: [
       { value: "remote-employee", label: "موظف عن بُعد", desc: "العمل عن بُعد مع عملاء دول الخليج" },
