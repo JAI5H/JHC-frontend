@@ -14,6 +14,7 @@ import { getJobApplications, type JobApplicationRecord } from "../../services/ap
 import { getAdminJobs } from "../../services/api/jobsApi";
 import { getAdministrators } from "../../services/api/settingsApi";
 import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
+import { parseBackendUtcTimestamp } from "../../services/dateTime";
 
 type MetricCard = {
   label: string;
@@ -51,8 +52,8 @@ const RECENT_ACTIVITY_LIMIT = 5;
 function formatRelativeTime(value: string | null) {
   if (!value) return "Recently";
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "Recently";
+  const parsed = parseBackendUtcTimestamp(value);
+  if (!parsed) return "Recently";
 
   const diffMs = parsed.getTime() - Date.now();
   const diffMinutes = Math.round(diffMs / (1000 * 60));
@@ -121,8 +122,7 @@ async function getJobRecruitmentOverview(signal: AbortSignal) {
 
 function getTimeValue(value: string | null) {
   if (!value) return 0;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+  return parseBackendUtcTimestamp(value)?.getTime() ?? 0;
 }
 
 function buildMetricSections(

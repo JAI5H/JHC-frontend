@@ -158,6 +158,10 @@ export function getAxiosErrorMessage(error: unknown, fallbackMessage: string) {
   return responseMessage;
 }
 
+export function getControlledActionErrorMessage(_error: unknown, fallbackMessage: string) {
+  return fallbackMessage;
+}
+
 export function isRequestCanceled(error: unknown) {
   return axios.isCancel(error) || (axios.isAxiosError(error) && error.code === "ERR_CANCELED");
 }

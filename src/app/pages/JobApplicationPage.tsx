@@ -6,6 +6,7 @@ import {
   BriefcaseBusiness,
   Check,
   CheckCircle2,
+  ChevronsUpDown,
   DollarSign,
   FileText,
   GraduationCap,
@@ -15,14 +16,15 @@ import {
   X,
 } from "lucide-react";
 import { ImageWithFallback } from "../components/shared/ImageWithFallback";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "../components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { useLanguage } from "../providers/LanguageProvider";
 import jhcLogo from "../../imgs/logo.png";
 import { formatJobSalary, getPublicJobBySlug, splitJobSkills, type JobRecord } from "../../services/api/jobsApi";
 import { submitJobApplication, type ReadyToStart } from "../../services/api/jobApplicationsApi";
 import { getAxiosErrorDetails, getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
-import { talentNetwork } from "../../locales/en/talentNetwork";
-import { talentNetwork as arabicTalentNetwork } from "../../locales/ar/talentNetwork";
+import { NATIONALITY_OPTIONS } from "../../data/nationalities";
 
 const MAX_CV_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CV_EXTENSIONS = [".pdf", ".doc", ".docx"];
@@ -184,6 +186,7 @@ export default function JobApplicationPage() {
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [touchedFields, setTouchedFields] = useState<Partial<Record<FieldKey, boolean>>>({});
   const [focusedField, setFocusedField] = useState<FieldKey | null>(null);
+  const [nationalityOpen, setNationalityOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [form, setForm] = useState<FormState>({
     name: "",
@@ -204,9 +207,14 @@ export default function JobApplicationPage() {
   const canApply = Boolean(job && !isClosed && !deadlinePast);
   const isArabic = language === "ar";
   const heroTextStyle = isArabic ? { fontFamily: "'Cairo', system-ui, sans-serif" } : undefined;
-  const nationalityOptions = isArabic
-    ? arabicTalentNetwork.options.nationalities
-    : talentNetwork.options.nationalities.map((option) => ({ value: option, label: option }));
+  const nationalityOptions = useMemo(
+    () => NATIONALITY_OPTIONS.map((option) => ({
+      ...option,
+      label: isArabic ? option.ar : option.en,
+    })),
+    [isArabic],
+  );
+  const selectedNationality = nationalityOptions.find((option) => option.value === form.nationality);
   const readyToStartLabels: Record<ReadyToStart, string> = isArabic
     ? { Yes: "نعم", No: "لا", Other: "أخرى" }
     : { Yes: "Yes", No: "No", Other: "Other" };
@@ -255,11 +263,13 @@ export default function JobApplicationPage() {
           name: "اكتب اسمك الكامل",
           age: "اكتب عمرك",
           nationality: "اختر جنسيتك",
+          nationalitySearch: "ابحث عن الجنسية أو الدولة",
           experience: "مثال: 5",
           expectedSalary: "اكتب المبلغ المتوقع",
           currency: "العملة",
           additionalNotes: "أضف أي ملاحظات ذات صلة",
         },
+        noNationalities: "لا توجد نتائج",
         cvIdle: "انقر أو اسحب سيرتك الذاتية هنا",
         removeFile: "إزالة الملف",
         errors: {
@@ -319,11 +329,13 @@ export default function JobApplicationPage() {
           name: "Enter your full name",
           age: "Enter your age",
           nationality: "Select your nationality",
+          nationalitySearch: "Search nationality or country",
           experience: "e.g. 5",
           expectedSalary: "Enter expected amount",
           currency: "Currency",
           additionalNotes: "Add any relevant notes",
         },
+        noNationalities: "No nationalities found",
         cvIdle: "Click or drag your CV here",
         removeFile: "Remove file",
         errors: {
@@ -706,10 +718,10 @@ export default function JobApplicationPage() {
                         />
                       </Field>
                       <Field id="nationality" label={copy.fields.nationality} required error={formErrors.nationality}>
-                        <Select
-                          value={form.nationality}
-                          onValueChange={(value) => updateForm("nationality", value)}
+                        <Popover
+                          open={nationalityOpen}
                           onOpenChange={(open) => {
+                            setNationalityOpen(open);
                             if (!open) {
                               setFocusedField(null);
                               markFieldTouched("nationality");
@@ -718,29 +730,64 @@ export default function JobApplicationPage() {
                             }
                           }}
                         >
-                          <SelectTrigger
-                            id="nationality"
-                            aria-label={copy.fields.nationality}
-                            aria-invalid={Boolean(formErrors.nationality)}
-                            aria-describedby={formErrors.nationality ? "nationality-error" : undefined}
-                            className={["w-full justify-between rounded-xl", isArabic ? "relative pl-10 pr-4 text-right [&_[data-slot=select-value]]:absolute [&_[data-slot=select-value]]:left-10 [&_[data-slot=select-value]]:right-4 [&_[data-slot=select-value]]:justify-end [&_[data-slot=select-value]]:[direction:rtl] [&_svg]:absolute [&_svg]:left-4 [&_svg]:right-auto" : "text-left"].join(" ")}
-                            dir={isArabic ? "ltr" : "ltr"}
-                            style={{ ...getControlStyle("nationality"), cursor: "pointer" }}
-                          >
-                            <SelectValue placeholder={copy.placeholders.nationality} />
-                          </SelectTrigger>
-                          <SelectContent
-                            align="end"
+                          <PopoverTrigger asChild>
+                            <button
+                              id="nationality"
+                              type="button"
+                              role="combobox"
+                              aria-expanded={nationalityOpen}
+                              aria-label={copy.fields.nationality}
+                              aria-invalid={Boolean(formErrors.nationality)}
+                              aria-describedby={formErrors.nationality ? "nationality-error" : undefined}
+                              className={["flex w-full items-center justify-between gap-3 rounded-xl", isArabic ? "text-right" : "text-left"].join(" ")}
+                              style={{ ...getControlStyle("nationality"), cursor: "pointer" }}
+                            >
+                              <span className={["min-w-0 flex-1 truncate", selectedNationality ? "" : "text-[#94A3B8]"].join(" ")}>
+                                {selectedNationality?.label ?? copy.placeholders.nationality}
+                              </span>
+                              <ChevronsUpDown size={16} className="flex-shrink-0 text-[#94A3B8]" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align={isArabic ? "end" : "start"}
                             sideOffset={6}
-                            className="z-[80] max-h-64 min-w-[112px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-[#E2E8F0] bg-white p-1 shadow-[0_18px_40px_rgba(15,23,42,0.16)] [&_[data-radix-select-viewport]]:h-auto [&_[data-radix-select-viewport]]:max-h-64"
+                            className="z-[80] w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-2rem)] rounded-xl border border-[#E2E8F0] bg-white p-0 shadow-[0_18px_40px_rgba(15,23,42,0.16)]"
+                            dir={isArabic ? "rtl" : "ltr"}
                           >
-                            {nationalityOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value} className={["rounded-lg px-3 py-2 text-sm text-[#0B1F4D] focus:bg-[#EFF6FF]", isArabic ? "pl-8 pr-3 text-right [&>span:first-child]:left-2 [&>span:first-child]:right-auto" : ""].join(" ")}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                            <Command>
+                              <CommandInput
+                                placeholder={copy.placeholders.nationalitySearch}
+                                className={isArabic ? "text-right" : undefined}
+                              />
+                              <CommandList className="max-h-64">
+                                <CommandEmpty>{copy.noNationalities}</CommandEmpty>
+                                <CommandGroup>
+                                  {nationalityOptions.map((option) => (
+                                    <CommandItem
+                                      key={option.country}
+                                      value={`${option.value} ${option.country}`}
+                                      keywords={[option.en, option.ar, option.country, ...(option.searchTerms ?? [])]}
+                                      onSelect={() => {
+                                        updateForm("nationality", option.value);
+                                        setTouchedFields((current) => ({ ...current, nationality: true }));
+                                        setFormErrors((current) => ({ ...current, nationality: undefined }));
+                                        setFocusedField(null);
+                                        setNationalityOpen(false);
+                                      }}
+                                      className={["rounded-lg px-3 py-2.5 text-sm text-[#0B1F4D] data-[selected=true]:bg-[#EFF6FF]", isArabic ? "text-right" : ""].join(" ")}
+                                    >
+                                      <Check
+                                        size={15}
+                                        className={form.nationality === option.value ? "opacity-100" : "opacity-0"}
+                                      />
+                                      <span className="flex-1">{option.label}</span>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </Field>
                     </div>
                   </section>

@@ -1,11 +1,13 @@
 import axios from "axios";
 import { clearAdminSessionAndRedirect, getAdminAccessToken } from "../../app/components/admin/adminSession";
 
-const DEFAULT_API_BASE_URL = "https://api---jhcdev-vr3nmq5gzq-uc.a.run.app";
+const LOCAL_API_BASE_URL = "http://localhost:5285";
+const DEFAULT_DEPLOYED_API_BASE_URL = "https://api---jhcdev-vr3nmq5gzq-uc.a.run.app";
 
 function resolveApiBaseUrl() {
   const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-  const candidate = configuredBaseUrl || DEFAULT_API_BASE_URL;
+  const environmentDefault = import.meta.env.DEV ? LOCAL_API_BASE_URL : DEFAULT_DEPLOYED_API_BASE_URL;
+  const candidate = configuredBaseUrl || environmentDefault;
 
   try {
     const parsedUrl = new URL(candidate);
@@ -16,7 +18,7 @@ function resolveApiBaseUrl() {
     // Fall back to the known-safe default if the configured value is invalid.
   }
 
-  return DEFAULT_API_BASE_URL;
+  return environmentDefault;
 }
 
 export const apiClient = axios.create({

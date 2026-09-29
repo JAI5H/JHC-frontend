@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import { AlertCircle, ArrowLeft, ChevronDown, ChevronUp, Download, Eye, FileText, Filter, Search, Users, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, ChevronUp, Download, Eye, FileText, Filter, LoaderCircle, RefreshCw, Search, Sparkles, Users, X } from "lucide-react";
 import { AdminLayout } from "../components/admin/AdminLayout";
 import {
   DropdownMenu,
@@ -10,18 +10,25 @@ import {
 } from "../components/ui/dropdown-menu";
 import { getAdminJobById, type JobRecord } from "../../services/api/jobsApi";
 import {
+  analyzeJobApplicationWithAi,
   getJobApplicationCv,
   getJobApplicationById,
   getJobApplicationStats,
   getJobApplications,
+  retryJobApplicationAiScreening,
   updateJobApplicationStatus,
+  type AiScreeningStatus,
+  type JobApplicationAiScreening,
   type JobApplicationStats,
   type JobApplicationStatus,
   type JobApplicationRecord,
 } from "../../services/api/jobApplicationsApi";
-import { getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
+import { getControlledActionErrorMessage, getAxiosErrorMessage, isRequestCanceled } from "../../services/api/utils";
+import { parseBackendUtcTimestamp } from "../../services/dateTime";
 
 const PAGE_SIZE = 10;
+const AI_POLL_INTERVAL_MS = 3_000;
+const AI_POLL_MAX_ATTEMPTS = 20;
 const APPLICATION_STATUSES: JobApplicationStatus[] = ["New", "UnderReview", "Shortlisted", "Hired", "Rejected"];
 const STATUS_LABELS: Record<JobApplicationStatus, string> = {
   New: "New",
@@ -45,16 +52,116 @@ const EMPTY_STATS: JobApplicationStats = {
   hiredApplications: 0,
   rejectedApplications: 0,
 };
+const AI_STATUS_CONFIG: Record<AiScreeningStatus, { bg: string; border: string; color: string }> = {
+  Pending: { bg: "#FFFBEB", border: "#FDE68A", color: "#B45309" },
+  Processing: { bg: "#EFF6FF", border: "#BFDBFE", color: "#1D4ED8" },
+  Completed: { bg: "#F0FDF4", border: "#BBF7D0", color: "#15803D" },
+  Failed: { bg: "#FEF2F2", border: "#FCA5A5", color: "#DC2626" },
+  Unknown: { bg: "#F9FAFB", border: "#D1D5DB", color: "#4B5563" },
+};
+const AI_NOT_ANALYZED_CONFIG = { bg: "#F8FAFC", border: "#CBD5E1", color: "#475569" };
+const AI_COPY = {
+  en: {
+    matchTitle: "AI Match Score",
+    assessmentTitle: "لماذا هذه النتيجة؟",
+    notAnalyzed: "AI Analysis: Not analyzed yet",
+    notAnalyzedBadge: "Not analyzed",
+    notAnalyzedDescription: "No AI analysis is running. Start an analysis when you are ready.",
+    pending: "AI Analysis: Pending",
+    processing: "AI Analysis: Processing...",
+    failed: "AI Analysis failed",
+    unknown: "AI Analysis status unavailable",
+    unknownDescription: "The analysis returned an unrecognized status. Please try again later.",
+    pollingTimeout: "AI analysis is taking longer than expected. Please check again later.",
+    pendingDescription: "The application details remain available while the AI result is being prepared.",
+    processingDescription: "The application details remain available while analysis is running.",
+    failedDescription: "The application details are still available. AI analysis can be reviewed later when a result is available.",
+    unavailable: "No AI assessment is available yet.",
+    strengths: "نقاط القوة الرئيسية",
+    skills: "المهارات ذات الصلة",
+    gaps: "الفجوات المحتملة",
+    noGaps: "No potential gaps were returned.",
+    evaluated: "Evaluated",
+    provider: "Provider",
+    strong: "Strong match",
+    good: "Good match",
+    moderate: "Moderate match",
+    low: "Needs closer review",
+    analyze: "Analyze with AI",
+    analyzing: "Analyzing...",
+    reanalyze: "Re-analyze",
+    reanalyzing: "Re-analyzing...",
+    retry: "Retry AI Analysis",
+    retrying: "Retrying...",
+    reanalyzeError: "Unable to re-analyze this application right now.",
+    analyzeError: "Unable to start AI analysis right now.",
+    retryError: "Unable to retry AI analysis right now.",
+  },
+  ar: {
+    matchTitle: "درجة المطابقة بالذكاء الاصطناعي",
+    assessmentTitle: "لماذا هذه الدرجة؟",
+    notAnalyzed: "تحليل الذكاء الاصطناعي: لم يتم التحليل بعد",
+    notAnalyzedBadge: "لم يتم التحليل",
+    notAnalyzedDescription: "لا يوجد تحليل بالذكاء الاصطناعي قيد التشغيل. يمكنك بدء التحليل عندما تكون مستعدا.",
+    pending: "تحليل الذكاء الاصطناعي: قيد الانتظار",
+    processing: "تحليل الذكاء الاصطناعي: جار المعالجة...",
+    failed: "تعذر تحليل الذكاء الاصطناعي",
+    unknown: "حالة تحليل الذكاء الاصطناعي غير متاحة",
+    unknownDescription: "أعاد التحليل حالة غير معروفة. يرجى المحاولة مرة أخرى لاحقا.",
+    pollingTimeout: "يستغرق تحليل الذكاء الاصطناعي وقتا أطول من المتوقع. يرجى التحقق لاحقا.",
+    pendingDescription: "تظل تفاصيل الطلب متاحة أثناء تجهيز نتيجة التحليل.",
+    processingDescription: "تظل تفاصيل الطلب متاحة أثناء تشغيل التحليل.",
+    failedDescription: "تظل تفاصيل الطلب متاحة. يمكن مراجعة تحليل الذكاء الاصطناعي لاحقا عند توفر النتيجة.",
+    unavailable: "لا يوجد تقييم متاح بالذكاء الاصطناعي حتى الآن.",
+    strengths: "نقاط القوة الرئيسية",
+    skills: "المهارات ذات الصلة",
+    gaps: "الفجوات المحتملة",
+    noGaps: "لم يتم إرجاع فجوات محتملة.",
+    evaluated: "تاريخ التقييم",
+    provider: "المزود",
+    strong: "مطابقة قوية",
+    good: "مطابقة جيدة",
+    moderate: "مطابقة متوسطة",
+    low: "يحتاج إلى مراجعة أدق",
+    analyze: "تحليل بالذكاء الاصطناعي",
+    analyzing: "جار التحليل...",
+    reanalyze: "إعادة التحليل",
+    reanalyzing: "جار إعادة التحليل...",
+    retry: "إعادة تحليل الذكاء الاصطناعي",
+    retrying: "جار إعادة التحليل...",
+    reanalyzeError: "تعذرت إعادة تحليل هذا الطلب حاليا.",
+    analyzeError: "تعذر بدء تحليل الذكاء الاصطناعي حاليا.",
+    retryError: "تعذرت إعادة تحليل الذكاء الاصطناعي حاليا.",
+  },
+} as const;
+type AiCopy = Record<keyof typeof AI_COPY.en, string>;
 
 function formatDate(value: string | null) {
   if (!value) return "Not available";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseBackendUtcTimestamp(value);
+  if (!parsed) return value;
   return parsed.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
+function formatAiDate(value: string | null, locale: "en" | "ar") {
+  if (!value) return null;
+  const parsed = parseBackendUtcTimestamp(value);
+  if (!parsed) return value;
+  return parsed.toLocaleString(locale === "ar" ? "ar-EG" : "en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function csvValue(value: string | number | null | undefined) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const stringValue = String(value ?? "");
+  const spreadsheetSafeValue = /^[\t\r\n ]*[=+\-@]/.test(stringValue)
+    ? `'${stringValue}`
+    : stringValue;
+  return `"${spreadsheetSafeValue.replace(/"/g, '""')}"`;
 }
 
 function exportCSV(applicants: JobApplicationRecord[], jobTitle: string) {
@@ -120,6 +227,213 @@ function StatusBadge({ status }: { status: JobApplicationStatus }) {
   );
 }
 
+function getScoreLabel(score: number, copy: AiCopy) {
+  if (score >= 80) return copy.strong;
+  if (score >= 65) return copy.good;
+  if (score >= 45) return copy.moderate;
+  return copy.low;
+}
+
+function getScoreColor(score: number) {
+  if (score >= 80) return "#16A34A";
+  if (score >= 65) return "#1D4ED8";
+  if (score >= 45) return "#D97706";
+  return "#DC2626";
+}
+
+function AiStateMessage({
+  aiScreening,
+  copy,
+  isRetrying = false,
+  retryError = "",
+  onRetry,
+}: {
+  aiScreening: JobApplicationAiScreening | null;
+  copy: AiCopy;
+  isRetrying?: boolean;
+  retryError?: string;
+  onRetry?: () => void;
+}) {
+  const hasNoScreening = aiScreening === null;
+  const status = aiScreening?.status ?? "Pending";
+  const statusConfig = hasNoScreening ? AI_NOT_ANALYZED_CONFIG : AI_STATUS_CONFIG[status];
+  const message =
+    hasNoScreening
+      ? copy.notAnalyzed
+      : status === "Failed"
+        ? copy.failed
+        : status === "Processing"
+          ? copy.processing
+          : status === "Completed"
+            ? copy.unavailable
+            : status === "Unknown"
+              ? copy.unknown
+              : copy.pending;
+  const description =
+    hasNoScreening
+      ? copy.notAnalyzedDescription
+      : status === "Failed"
+        ? copy.failedDescription
+        : status === "Processing"
+          ? copy.processingDescription
+          : status === "Unknown"
+            ? copy.unknownDescription
+            : copy.pendingDescription;
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl px-4 py-3 text-sm" style={{ background: statusConfig.bg, border: `1px solid ${statusConfig.border}`, color: statusConfig.color }}>
+      <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="font-bold">{message}</div>
+        <div className="mt-1 leading-6">{description}</div>
+        {(status === "Failed" || aiScreening === null) && onRetry ? (
+          <>
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={isRetrying}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ borderColor: statusConfig.border, color: statusConfig.color }}
+            >
+              {isRetrying ? <LoaderCircle size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              {isRetrying ? (aiScreening === null ? copy.analyzing : copy.retrying) : (aiScreening === null ? copy.analyze : copy.retry)}
+            </button>
+          </>
+        ) : null}
+        {retryError ? <div className="mt-2 text-xs font-medium" role="alert">{retryError}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function AiMatchScoreCard({
+  aiScreening,
+  copy,
+  locale,
+  isRetrying,
+  retryError,
+  onRetry,
+}: {
+  aiScreening: JobApplicationAiScreening | null;
+  copy: AiCopy;
+  locale: "en" | "ar";
+  isRetrying: boolean;
+  retryError: string;
+  onRetry: () => void;
+}) {
+  const score = aiScreening?.status === "Completed" ? aiScreening.matchScore : null;
+  const safeScore = typeof score === "number" ? Math.min(100, Math.max(0, Math.round(score))) : null;
+  const scoreColor = safeScore === null ? "#94A3B8" : getScoreColor(safeScore);
+  const evaluatedAt = formatAiDate(aiScreening?.evaluatedAt ?? null, locale);
+  const canReanalyze = aiScreening?.status === "Completed";
+
+  return (
+    <div className="rounded-xl bg-white p-5 sm:col-span-2 xl:col-span-2" style={{ border: "1px solid #E2E8F0" }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>{copy.matchTitle}</div>
+        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: aiScreening ? AI_STATUS_CONFIG[aiScreening.status].bg : AI_NOT_ANALYZED_CONFIG.bg, color: aiScreening ? AI_STATUS_CONFIG[aiScreening.status].color : AI_NOT_ANALYZED_CONFIG.color }}>
+          <Sparkles size={12} /> {aiScreening?.status ?? copy.notAnalyzedBadge}
+        </span>
+      </div>
+
+      {safeScore === null ? (
+        <div className="mt-5">
+          <AiStateMessage aiScreening={aiScreening} copy={copy} isRetrying={isRetrying} retryError={retryError} onRetry={onRetry} />
+        </div>
+      ) : (
+        <>
+          <div className="mt-5 flex flex-wrap items-end gap-x-3 gap-y-2">
+            <span className="text-5xl font-black leading-none" style={{ color: scoreColor }}>{safeScore}</span>
+            <span className="pb-1 text-xl font-black" style={{ color: "#0B1F4D" }}>/ 100</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "#E2E8F0" }}>
+            <div className="h-full rounded-full" style={{ width: `${safeScore}%`, background: scoreColor }} />
+          </div>
+          <div className="mt-3 text-sm font-semibold" style={{ color: scoreColor }}>{getScoreLabel(safeScore, copy)}</div>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: "#64748B" }}>
+            {aiScreening?.modelProvider ? <span>{copy.provider}: {aiScreening.modelProvider}</span> : null}
+            {evaluatedAt ? <span>{copy.evaluated}: {evaluatedAt}</span> : null}
+          </div>
+          {canReanalyze ? (
+            <>
+              <button
+                type="button"
+                onClick={onRetry}
+                disabled={isRetrying}
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ borderColor: "#E2E8F0", color: "#64748B" }}
+              >
+                {isRetrying ? <LoaderCircle size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                {isRetrying ? copy.reanalyzing : copy.reanalyze}
+              </button>
+              {retryError ? <div className="mt-2 text-xs font-medium" style={{ color: "#DC2626" }} role="alert">{retryError}</div> : null}
+            </>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AiAssessmentCard({
+  aiScreening,
+  copy,
+}: {
+  aiScreening: JobApplicationAiScreening | null;
+  copy: AiCopy;
+}) {
+  const isCompleted = aiScreening?.status === "Completed";
+  const sections = [
+    { title: copy.strengths, items: aiScreening?.strengths ?? [], dir: "rtl" },
+    { title: copy.skills, items: aiScreening?.relevantSkills ?? [], dir: "ltr" },
+    { title: copy.gaps, items: aiScreening?.gaps ?? [], empty: copy.noGaps, dir: "rtl" },
+  ];
+
+  return (
+    <div className="rounded-xl bg-white p-5 sm:col-span-2 xl:col-span-3" style={{ border: "1px solid #E2E8F0" }}>
+      <div dir="rtl" className="text-right text-xs font-bold" style={{ color: "#94A3B8", fontFamily: "'Cairo', system-ui, sans-serif" }}>{copy.assessmentTitle}</div>
+      {!isCompleted ? (
+        <div className="mt-4">
+          <AiStateMessage aiScreening={aiScreening} copy={copy} />
+        </div>
+      ) : (
+        <>
+          <p
+            dir={aiScreening.explanation ? "rtl" : "ltr"}
+            className="mt-3 whitespace-pre-line text-sm leading-6"
+            style={{ color: "#334155", textAlign: aiScreening.explanation ? "right" : "left", fontFamily: aiScreening.explanation ? "'Cairo', system-ui, sans-serif" : undefined }}
+          >
+            {aiScreening.explanation || copy.unavailable}
+          </p>
+          <div className="mt-5 grid gap-x-8 gap-y-4 md:grid-cols-3">
+            {sections.map((section) => (
+              <div key={section.title} className="min-w-0">
+                <div dir="rtl" className="text-right text-xs font-bold" style={{ color: "#0B1F4D", fontFamily: "'Cairo', system-ui, sans-serif" }}>{section.title}</div>
+                {section.items.length > 0 ? (
+                  <ul
+                    dir={section.dir}
+                    className="mt-2 space-y-2 text-sm leading-6"
+                    style={{ color: "#334155", textAlign: section.dir === "rtl" ? "right" : "left", fontFamily: section.dir === "rtl" ? "'Cairo', system-ui, sans-serif" : undefined }}
+                  >
+                    {section.items.map((item) => (
+                      <li key={item} dir={section.dir} className="flex min-w-0 items-start gap-2">
+                        <span className="mt-2 h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: "#1D4ED8" }} />
+                        <span className="min-w-0 flex-1 break-words">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-2 text-sm" style={{ color: "#94A3B8" }}>{section.empty ?? copy.unavailable}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function FilterDropdown({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
 
@@ -168,6 +482,7 @@ export default function AdminJobApplicantsPage() {
   const { id } = useParams<{ id: string }>();
   const jobId = Number(id);
   const navigate = useNavigate();
+  const aiCopy = AI_COPY.en;
   const [job, setJob] = useState<JobRecord | null>(null);
   const [applicants, setApplicants] = useState<JobApplicationRecord[]>([]);
   const [stats, setStats] = useState<JobApplicationStats>(EMPTY_STATS);
@@ -188,7 +503,11 @@ export default function AdminJobApplicantsPage() {
   const [cvError, setCvError] = useState("");
   const [statusMenuId, setStatusMenuId] = useState<number | null>(null);
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
+  const [aiRetryingId, setAiRetryingId] = useState<number | null>(null);
+  const [aiRetryError, setAiRetryError] = useState("");
+  const [aiPollingError, setAiPollingError] = useState("");
   const cvRequestInFlightRef = useRef(false);
+  const aiActionInFlightRef = useRef(false);
   const detailRequestIdRef = useRef<number | null>(null);
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -266,12 +585,68 @@ export default function AdminJobApplicantsPage() {
     return () => controller.abort();
   }, [loadApplicants]);
 
+  useEffect(() => {
+    const applicationId = selectedApplicant?.id;
+    const aiStatus = selectedApplicant?.aiScreening?.status;
+    if (
+      !applicationId ||
+      aiRetryingId === applicationId ||
+      (aiStatus !== "Pending" && aiStatus !== "Processing")
+    ) return;
+
+    const controller = new AbortController();
+    let timeoutId: number | null = null;
+    let attempts = 0;
+
+    function scheduleNextPoll() {
+      if (controller.signal.aborted) return;
+      if (attempts >= AI_POLL_MAX_ATTEMPTS) {
+        setAiPollingError(aiCopy.pollingTimeout);
+        return;
+      }
+      timeoutId = window.setTimeout(() => void poll(), AI_POLL_INTERVAL_MS);
+    }
+
+    async function poll() {
+      if (controller.signal.aborted) return;
+      attempts += 1;
+
+      try {
+        const refreshed = await getJobApplicationById(jobId, applicationId, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+
+        setSelectedApplicant((current) => current?.id === applicationId ? refreshed : current);
+        setApplicants((current) => current.map((item) => item.id === applicationId ? refreshed : item));
+        setAiPollingError("");
+
+        const refreshedStatus = refreshed.aiScreening?.status;
+        if (refreshedStatus === "Pending" || refreshedStatus === "Processing") {
+          scheduleNextPoll();
+        }
+      } catch (requestError) {
+        if (!isRequestCanceled(requestError) && !controller.signal.aborted) {
+          scheduleNextPoll();
+        }
+      }
+    }
+
+    setAiPollingError("");
+    scheduleNextPoll();
+
+    return () => {
+      controller.abort();
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    };
+  }, [aiCopy.pollingTimeout, aiRetryingId, jobId, selectedApplicant?.id]);
+
   const openApplicantDetail = async (applicationId: number) => {
     if (selectedApplicantId === applicationId) {
       detailRequestIdRef.current = null;
       setSelectedApplicantId(null);
       setSelectedApplicant(null);
       setDetailError("");
+      setAiRetryError("");
+      setAiPollingError("");
       setDetailLoading(false);
       return;
     }
@@ -280,6 +655,8 @@ export default function AdminJobApplicantsPage() {
     detailRequestIdRef.current = applicationId;
     setSelectedApplicant(null);
     setDetailError("");
+    setAiRetryError("");
+    setAiPollingError("");
     setDetailLoading(true);
 
     try {
@@ -297,6 +674,83 @@ export default function AdminJobApplicantsPage() {
   const refreshStats = async () => {
     const nextStats = await getJobApplicationStats(jobId);
     setStats(nextStats);
+  };
+
+  const handleAiAction = async (application: JobApplicationRecord) => {
+    const aiStatus = application.aiScreening?.status;
+    const canRunAction = application.aiScreening === null || aiStatus === "Failed" || aiStatus === "Completed";
+    if (aiActionInFlightRef.current || !canRunAction) return;
+
+    const previousCompletedScreening = aiStatus === "Completed" && application.aiScreening
+      ? {
+          ...application.aiScreening,
+          strengths: [...application.aiScreening.strengths],
+          relevantSkills: [...application.aiScreening.relevantSkills],
+          gaps: [...application.aiScreening.gaps],
+        }
+      : null;
+    const pendingScreening: JobApplicationAiScreening = {
+      status: "Pending",
+      matchScore: null,
+      explanation: null,
+      strengths: [],
+      relevantSkills: [],
+      gaps: [],
+      errorMessage: null,
+      modelProvider: null,
+      evaluatedAt: null,
+    };
+
+    aiActionInFlightRef.current = true;
+    setAiRetryingId(application.id);
+    setAiRetryError("");
+    setAiPollingError("");
+
+    if (previousCompletedScreening) {
+      setSelectedApplicant((current) =>
+        current?.id === application.id ? { ...current, aiScreening: pendingScreening } : current,
+      );
+      setApplicants((current) =>
+        current.map((item) => item.id === application.id ? { ...item, aiScreening: pendingScreening } : item),
+      );
+    }
+
+    try {
+      if (application.aiScreening === null) {
+        await analyzeJobApplicationWithAi(jobId, application.id);
+      } else {
+        await retryJobApplicationAiScreening(jobId, application.id);
+      }
+    } catch (requestError) {
+      const fallbackMessage = application.aiScreening === null
+        ? aiCopy.analyzeError
+        : aiStatus === "Completed"
+          ? aiCopy.reanalyzeError
+          : aiCopy.retryError;
+      if (previousCompletedScreening) {
+        setSelectedApplicant((current) =>
+          current?.id === application.id ? { ...current, aiScreening: previousCompletedScreening } : current,
+        );
+        setApplicants((current) =>
+          current.map((item) => item.id === application.id ? { ...item, aiScreening: previousCompletedScreening } : item),
+        );
+      }
+      setAiRetryError(getControlledActionErrorMessage(requestError, fallbackMessage));
+      aiActionInFlightRef.current = false;
+      setAiRetryingId(null);
+      return;
+    }
+
+    if (!previousCompletedScreening) {
+      setSelectedApplicant((current) =>
+        current?.id === application.id ? { ...current, aiScreening: pendingScreening } : current,
+      );
+      setApplicants((current) =>
+        current.map((item) => item.id === application.id ? { ...item, aiScreening: pendingScreening } : item),
+      );
+    }
+    aiActionInFlightRef.current = false;
+    setAiRetryingId(null);
   };
 
   const handleStatusUpdate = async (applicant: JobApplicationRecord, nextStatus: JobApplicationStatus) => {
@@ -356,46 +810,37 @@ export default function AdminJobApplicantsPage() {
     if (cvRequestInFlightRef.current) return;
     cvRequestInFlightRef.current = true;
 
-    const isPdfFile = application.cvFileName.toLowerCase().endsWith(".pdf");
-    let pdfWindow: Window | null = null;
-
-    if (isPdfFile) {
-      pdfWindow = window.open("about:blank", "_blank");
-      if (!pdfWindow) {
-        setCvError("Unable to open the CV. Please allow popups for this site and try again.");
-        cvRequestInFlightRef.current = false;
-        return;
-      }
-      pdfWindow.opener = null;
-    }
+    const previewWindow = window.open("about:blank", "_blank");
+    if (previewWindow) previewWindow.opener = null;
 
     setCvActionId(application.id);
     setCvError("");
 
     try {
       const cvResponse = await getJobApplicationCv(jobId, application.id);
-      const contentType = cvResponse.contentType?.toLowerCase() ?? cvResponse.blob.type.toLowerCase();
+      const responseContentType = cvResponse.contentType || cvResponse.blob.type;
+      const contentType = responseContentType.split(";", 1)[0].trim().toLowerCase();
+      const isApprovedPdf = contentType === "application/pdf";
       const filename =
         getFilenameFromContentDisposition(cvResponse.contentDisposition) ||
         application.cvFileName ||
         `${application.name.toLowerCase().replace(/\s+/g, "-") || "candidate"}-cv`;
-      const blob = contentType ? new Blob([cvResponse.blob], { type: contentType }) : cvResponse.blob;
+      const blob = new Blob([cvResponse.blob], {
+        type: isApprovedPdf ? "application/pdf" : "application/octet-stream",
+      });
       const url = URL.createObjectURL(blob);
 
-      if (isPdfFile || contentType.includes("pdf")) {
-        if (!pdfWindow) {
-          setCvError("Unable to open the CV. Please allow popups for this site and try again.");
-          URL.revokeObjectURL(url);
-          return;
-        }
-        pdfWindow.location.href = url;
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (isApprovedPdf && previewWindow) {
+        previewWindow.location.href = url;
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
         return;
       }
 
+      previewWindow?.close();
       downloadBlob(url, filename);
-      setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (requestError) {
+      previewWindow?.close();
       setCvError(getAxiosErrorMessage(requestError, "Unable to open this CV right now."));
     } finally {
       cvRequestInFlightRef.current = false;
@@ -534,7 +979,7 @@ export default function AdminJobApplicantsPage() {
               <table className="w-full" style={{ borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #E2E8F0" }}>
-                    {["Candidate", "Age", "Nationality", "Experience", "Ready", "Expected Salary", "Status", "Notes", "CV", "Applied", "Actions"].map((heading) => (
+                    {["Candidate", "Age", "Nationality", "Experience", "Ready", "Expected Salary", "AI Match Score", "Status", "Notes", "CV", "Applied", "Actions"].map((heading) => (
                       <th key={heading} className="whitespace-nowrap px-5 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8", background: "#F8FAFC" }}>{heading}</th>
                     ))}
                   </tr>
@@ -571,6 +1016,11 @@ export default function AdminJobApplicantsPage() {
                           <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.experience}</td>
                           <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.readyToStart}</td>
                           <td className="px-5 py-4 text-sm" style={{ color: "#64748B" }}>{formatExpectedSalary(applicant)}</td>
+                          <td dir="ltr" className="whitespace-nowrap px-5 py-4 text-sm tabular-nums" style={{ color: "#64748B" }}>
+                            {applicant.aiScreening?.status === "Completed" && applicant.aiScreening.matchScore != null
+                              ? `${applicant.aiScreening.matchScore} / 100`
+                              : "—"}
+                          </td>
                           <td className="px-5 py-4"><StatusBadge status={applicant.status} /></td>
                           <td className="max-w-[260px] truncate px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.additionalNotes ?? "-"}</td>
                           <td className="px-5 py-4">
@@ -648,7 +1098,7 @@ export default function AdminJobApplicantsPage() {
                         </tr>
                         {isExpanded ? (
                           <tr key={`${applicant.id}-details`} style={{ borderBottom: index < filtered.length - 1 ? "1px solid #E2E8F0" : "none" }}>
-                            <td colSpan={11} className="px-5 py-5" style={{ background: "#F8FAFC" }}>
+                            <td colSpan={12} className="px-5 py-5" style={{ background: "#F8FAFC" }}>
                               {detailLoading ? (
                                 <div className="py-8 text-center text-sm" style={{ color: "#94A3B8" }}>Loading applicant details...</div>
                               ) : detailError ? (
@@ -679,6 +1129,18 @@ export default function AdminJobApplicantsPage() {
                                       </div>
                                     </div>
                                   ))}
+
+                                  <div className="contents" dir="ltr">
+                                    <AiMatchScoreCard
+                                      aiScreening={selectedApplicant.aiScreening}
+                                      copy={aiCopy}
+                                      locale="en"
+                                      isRetrying={aiRetryingId === selectedApplicant.id}
+                                      retryError={aiRetryError || aiPollingError}
+                                      onRetry={() => void handleAiAction(selectedApplicant)}
+                                    />
+                                    <AiAssessmentCard aiScreening={selectedApplicant.aiScreening} copy={aiCopy} />
+                                  </div>
 
                                   <div className="rounded-xl bg-white p-4 sm:col-span-2 xl:col-span-5" style={{ border: "1px solid #E2E8F0" }}>
                                     <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>CV</div>

@@ -1,5 +1,6 @@
 import { apiClient } from "./client";
 import {
+  getArrayCandidate,
   getListPayload,
   getNumberValue,
   getObjectCandidate,
@@ -12,6 +13,19 @@ type RequestOptions = {
 
 export type ReadyToStart = "Yes" | "No" | "Other";
 export type JobApplicationStatus = "New" | "UnderReview" | "Shortlisted" | "Hired" | "Rejected";
+export type AiScreeningStatus = "Pending" | "Processing" | "Completed" | "Failed" | "Unknown";
+
+export type JobApplicationAiScreening = {
+  status: AiScreeningStatus;
+  matchScore: number | null;
+  explanation: string | null;
+  strengths: string[];
+  relevantSkills: string[];
+  gaps: string[];
+  errorMessage: string | null;
+  modelProvider: string | null;
+  evaluatedAt: string | null;
+};
 
 export type JobApplicationRecord = {
   id: number;
@@ -29,6 +43,7 @@ export type JobApplicationRecord = {
   cvFileName: string;
   cvUrl: string | null;
   status: JobApplicationStatus;
+  aiScreening: JobApplicationAiScreening | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -68,6 +83,53 @@ function normalizeApplicationStatus(value: string | null | undefined): JobApplic
   return "New";
 }
 
+function normalizeAiScreeningStatus(value: string | null | undefined): AiScreeningStatus {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "pending") return "Pending";
+  if (normalized === "processing") return "Processing";
+  if (normalized === "completed") return "Completed";
+  if (normalized === "failed") return "Failed";
+  return "Unknown";
+}
+
+function normalizeStringArray(value: unknown) {
+  const directArray = getArrayCandidate(value);
+  if (directArray) {
+    return directArray.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      const parsedArray = getArrayCandidate(parsed);
+      if (parsedArray) {
+        return parsedArray.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+      }
+    } catch {
+      return [value];
+    }
+  }
+
+  return [];
+}
+
+function normalizeAiScreening(payload: unknown): JobApplicationAiScreening | null {
+  const record = getObjectCandidate(payload);
+  if (!record) return null;
+
+  return {
+    status: normalizeAiScreeningStatus(getStringValue(record, ["status", "Status"])),
+    matchScore: getNumberValue(record, ["matchScore", "MatchScore"]),
+    explanation: getStringValue(record, ["explanation", "Explanation"]),
+    strengths: normalizeStringArray(record.strengths ?? record.Strengths),
+    relevantSkills: normalizeStringArray(record.relevantSkills ?? record.RelevantSkills),
+    gaps: normalizeStringArray(record.gaps ?? record.Gaps),
+    errorMessage: getStringValue(record, ["errorMessage", "ErrorMessage"]),
+    modelProvider: getStringValue(record, ["modelProvider", "ModelProvider"]),
+    evaluatedAt: getStringValue(record, ["evaluatedAt", "EvaluatedAt"]),
+  };
+}
+
 function normalizeApplication(payload: unknown): JobApplicationRecord {
   const record = getObjectCandidate(payload);
   return {
@@ -86,6 +148,7 @@ function normalizeApplication(payload: unknown): JobApplicationRecord {
     cvFileName: getStringValue(record, ["cvFileName"]) ?? "",
     cvUrl: getStringValue(record, ["cvUrl"]) ?? null,
     status: normalizeApplicationStatus(getStringValue(record, ["status", "Status"])),
+    aiScreening: normalizeAiScreening(record?.aiScreening ?? record?.AiScreening),
     createdAt: getStringValue(record, ["createdAt"]) ?? null,
     updatedAt: getStringValue(record, ["updatedAt"]) ?? null,
   };
@@ -155,6 +218,14 @@ export async function getJobApplicationById(
     signal: options?.signal,
   });
   return normalizeApplication(response.data);
+}
+
+export async function retryJobApplicationAiScreening(jobId: number, applicationId: number) {
+  await apiClient.post(`/api/jobs/${jobId}/applications/${applicationId}/ai-screening/retry`);
+}
+
+export async function analyzeJobApplicationWithAi(jobId: number, applicationId: number) {
+  await apiClient.post(`/api/jobs/${jobId}/applications/${applicationId}/ai-screening/analyze`);
 }
 
 export async function getJobApplicationStats(jobId: number, options?: RequestOptions) {
