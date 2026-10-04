@@ -982,7 +982,7 @@ export default function AdminJobApplicantsPage() {
               <table className="w-full" style={{ borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #E2E8F0" }}>
-                    {["Candidate", "Age", "Nationality", "Experience", "Ready", "Expected Salary", "AI Match Score", "Status", "Notes", "CV", "Applied", "Actions"].map((heading) => (
+                    {["Candidate", "Age", "Nationality", "Experience", "Ready", "Expected Salary", "AI Match Score", "Status", "Applied", "Actions"].map((heading) => (
                       <th key={heading} className="whitespace-nowrap px-5 py-3 text-left text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8", background: "#F8FAFC" }}>{heading}</th>
                     ))}
                   </tr>
@@ -1025,25 +1025,6 @@ export default function AdminJobApplicantsPage() {
                               : "—"}
                           </td>
                           <td className="px-5 py-4"><StatusBadge status={applicant.status} /></td>
-                          <td className="max-w-[260px] truncate px-5 py-4 text-sm" style={{ color: "#64748B" }}>{applicant.additionalNotes ?? "-"}</td>
-                          <td className="px-5 py-4">
-                            {applicant.cvFileName ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleViewCv(applicant);
-                                }}
-                                disabled={cvActionId === applicant.id}
-                                className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60"
-                                style={{ borderColor: "#E2E8F0", color: "#0B1F4D" }}
-                              >
-                                <FileText size={12} /> {cvActionId === applicant.id ? "Opening..." : applicant.cvFileName}
-                              </button>
-                            ) : (
-                              <span className="text-xs" style={{ color: "#CBD5E1" }}>No CV</span>
-                            )}
-                          </td>
                           <td className="whitespace-nowrap px-5 py-4 text-sm" style={{ color: "#94A3B8" }}>{formatDate(applicant.createdAt)}</td>
                           <td className="px-5 py-4">
                             <div className="flex items-center gap-2">
@@ -1101,7 +1082,7 @@ export default function AdminJobApplicantsPage() {
                         </tr>
                         {isExpanded ? (
                           <tr key={`${applicant.id}-details`} style={{ borderBottom: index < filtered.length - 1 ? "1px solid #E2E8F0" : "none" }}>
-                            <td colSpan={12} className="px-5 py-5" style={{ background: "#F8FAFC" }}>
+                            <td colSpan={10} className="px-5 py-5" style={{ background: "#F8FAFC" }}>
                               {detailLoading ? (
                                 <div className="py-8 text-center text-sm" style={{ color: "#94A3B8" }}>Loading applicant details...</div>
                               ) : detailError ? (
@@ -1133,18 +1114,6 @@ export default function AdminJobApplicantsPage() {
                                     </div>
                                   ))}
 
-                                  <div className="contents" dir="ltr">
-                                    <AiMatchScoreCard
-                                      aiScreening={selectedApplicant.aiScreening}
-                                      copy={aiCopy}
-                                      locale="en"
-                                      isRetrying={aiRetryingId === selectedApplicant.id}
-                                      retryError={aiRetryError || aiPollingError}
-                                      onRetry={() => void handleAiAction(selectedApplicant)}
-                                    />
-                                    <AiAssessmentCard aiScreening={selectedApplicant.aiScreening} copy={aiCopy} />
-                                  </div>
-
                                   <div className="rounded-xl bg-white p-4 sm:col-span-2 xl:col-span-5" style={{ border: "1px solid #E2E8F0" }}>
                                     <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>CV</div>
                                     {selectedApplicant.cvFileName ? (
@@ -1160,6 +1129,18 @@ export default function AdminJobApplicantsPage() {
                                     ) : (
                                       <div className="mt-2 text-sm" style={{ color: "#94A3B8" }}>No CV available.</div>
                                     )}
+                                  </div>
+
+                                  <div className="contents" dir="ltr">
+                                    <AiMatchScoreCard
+                                      aiScreening={selectedApplicant.aiScreening}
+                                      copy={aiCopy}
+                                      locale="en"
+                                      isRetrying={aiRetryingId === selectedApplicant.id}
+                                      retryError={aiRetryError || aiPollingError}
+                                      onRetry={() => void handleAiAction(selectedApplicant)}
+                                    />
+                                    <AiAssessmentCard aiScreening={selectedApplicant.aiScreening} copy={aiCopy} />
                                   </div>
                                 </div>
                               ) : null}
