@@ -4,6 +4,7 @@ import { AdminLayout } from "../components/admin/AdminLayout";
 import { hasAdminAccessToken } from "../components/admin/adminSession";
 import {
   deriveCandidateStatsFromList,
+  getAllCandidates,
   getCandidateStats,
   getCandidates,
   type CandidateRecord,
@@ -131,15 +132,16 @@ function buildMetricSections(
   jobsTotal: number,
   jobApplicationsTotal: number,
   articlesTotal: number,
+  applicantsTotal: number,
 ): MetricSection[] {
   return [
     {
       title: "TALENT NETWORK",
       cards: [
         {
-          label: "TOTAL TALENTS",
-          value: stats.totalCandidates.toLocaleString("en-US"),
-          delta: "Total candidates in Talent Network",
+          label: "TOTAL APPLICANTS",
+          value: applicantsTotal.toLocaleString("en-US"),
+          delta: "Live candidate total",
           color: "#1D4ED8",
         },
         {
@@ -238,12 +240,13 @@ export default function AdminOverviewPage() {
       setError("");
 
       try {
-        const [statsResult, candidatesResult, adminsResult, jobRecruitmentResult, articlesResult] = await Promise.allSettled([
+        const [statsResult, candidatesResult, adminsResult, jobRecruitmentResult, articlesResult, applicantsResult] = await Promise.allSettled([
           getCandidateStats({ signal: controller.signal }),
           getCandidates({ pageNumber: 1, pageSize: 5, sort: "Newest" }, { signal: controller.signal }),
           getAdministrators({ signal: controller.signal }),
           getJobRecruitmentOverview(controller.signal),
           getAdminArticles({ pageNumber: 1, pageSize: 1 }, { signal: controller.signal }),
+          getAllCandidates({ pageSize: 100 }, { signal: controller.signal }),
         ]);
 
         if (controller.signal.aborted) return;
@@ -286,7 +289,11 @@ export default function AdminOverviewPage() {
             ? articlesResult.value.totalCount
             : 0;
 
-        setMetricSections(buildMetricSections(resolvedStats, adminCount, jobsTotal, jobApplicationsTotal, articlesTotal));
+        const applicantsTotal = applicantsResult.status === "fulfilled"
+          ? deriveCandidateStatsFromList(applicantsResult.value.items, applicantsResult.value.items.length).totalCandidates
+          : 0;
+
+        setMetricSections(buildMetricSections(resolvedStats, adminCount, jobsTotal, jobApplicationsTotal, articlesTotal, applicantsTotal));
         setActivitySections([
           {
             title: "TALENT NETWORK",
@@ -305,7 +312,8 @@ export default function AdminOverviewPage() {
           candidatesResult.status === "rejected" &&
           adminsResult.status === "rejected" &&
           jobRecruitmentResult.status === "rejected" &&
-          articlesResult.status === "rejected"
+          articlesResult.status === "rejected" &&
+          applicantsResult.status === "rejected"
         ) {
           setError("Unable to load dashboard data right now.");
         }

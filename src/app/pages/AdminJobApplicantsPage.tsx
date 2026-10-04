@@ -165,7 +165,7 @@ function csvValue(value: string | number | null | undefined) {
 }
 
 function exportCSV(applicants: JobApplicationRecord[], jobTitle: string) {
-  const headers = ["Name", "Age", "Nationality", "Experience", "Ready To Start", "Expected Salary", "Status", "Additional Notes", "CV", "Applied Date"];
+  const headers = ["Name", "Age", "Nationality", "Experience", "Ready To Start", "Expected Salary", "AI Match Score", "Status", "Additional Notes", "CV", "Applied Date"];
   const rows = applicants.map((applicant) => [
     applicant.name,
     applicant.age,
@@ -173,6 +173,9 @@ function exportCSV(applicants: JobApplicationRecord[], jobTitle: string) {
     applicant.experience,
     applicant.readyToStart,
     formatExpectedSalary(applicant),
+    applicant.aiScreening?.status === "Completed" && applicant.aiScreening.matchScore != null
+      ? `${applicant.aiScreening.matchScore} / 100`
+      : "—",
     STATUS_LABELS[applicant.status],
     applicant.additionalNotes,
     applicant.cvFileName,
@@ -1119,10 +1122,10 @@ export default function AdminJobApplicantsPage() {
                                     ["Updated", formatDate(selectedApplicant.updatedAt)],
                                     ["Additional Notes", selectedApplicant.additionalNotes || "-"],
                                   ].map(([label, value]) => (
-                                    <div key={String(label)} className="rounded-xl bg-white p-4" style={{ border: "1px solid #E2E8F0" }}>
+                                    <div key={String(label)} className={`rounded-xl bg-white p-4${label === "Additional Notes" ? " col-span-full min-w-0" : ""}`} style={{ border: "1px solid #E2E8F0" }}>
                                       <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "#94A3B8" }}>{label}</div>
                                       <div
-                                        className={label === "Additional Notes" ? "mt-2 whitespace-pre-line text-sm leading-6" : "mt-2 text-sm font-semibold"}
+                                        className={label === "Additional Notes" ? "mt-2 whitespace-pre-line text-sm leading-6 [overflow-wrap:anywhere]" : "mt-2 text-sm font-semibold"}
                                         style={{ color: label === "Additional Notes" ? "#334155" : "#0B1F4D" }}
                                       >
                                         {String(value || "-")}
